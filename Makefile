@@ -14,12 +14,12 @@ else
 endif
 
 # Source files
-COMMON_SRC = monocypher.c siete.c crypto_utils.c
+COMMON_SRC = monocypher.c siete.c crypto_utils.c sake.c platform.c
 SERVER_SRC = server.c $(COMMON_SRC)
 CLIENT_SRC = client.c $(COMMON_SRC)
 
 # Header files for dependency tracking
-HEADERS = monocypher.h siete.h crypto_utils.h constants.h
+HEADERS = monocypher.h siete.h crypto_utils.h constants.h platform.h sake.h
 
 # Output executables
 SERVER = server$(EXT)

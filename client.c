@@ -3,7 +3,7 @@
  * Subor:      client.c
  * Autor:      Jozef Kovalcin
  * Verzia:     1.0.0
- * Datum:      2025
+ * Datum:      05-03-2025
  * 
  * Popis: 
  *     Implementacia klienta pre zabezpeceny prenos suborov. Program zabezpecuje:
@@ -19,6 +19,8 @@
  *     - siete.h (sietova komunikacia)
  *     - crypto_utils.h (kryptograficke operacie)
  *     - constants.h (konstanty programu)
+ *     - sake.h (pre SAKE protokol)
+ *     - platform.h (platform-specificke funkcie)
  ******************************************************************************/
 
 #include <stdio.h>        // Kniznica pre standardny vstup a vystup (nacitanie zo suborov, vypis na obrazovku)
@@ -26,28 +28,12 @@
 #include <string.h>       // Kniznica pre pracu s retazcami (kopirovanie, porovnavanie, spajanie)
 #include <unistd.h>       // Kniznica pre systemove volania UNIX (procesy, subory, sokety)
 
-#ifdef _WIN32
-#include <winsock2.h>     // Windows: Zakladna sietova kniznica
-#include <ws2tcpip.h>     // Windows: Rozsirene sietove funkcie
-#include <windows.h>      // Windows: Zakladne systemove funkcie
-#include <bcrypt.h>       // Windows: Kryptograficke funkcie
-#include <conio.h>        // Windows: Konzolovy vstup/vystup (implementacia getpass())
-
-#else
-#include <sys/random.h>   // Linux: Generovanie kryptograficky bezpecnych nahodnych cisel
-#include <arpa/inet.h>    // Linux: Sietove funkcie (konverzia adries, sokety)
-#include <dirent.h>       // Linux: Operacie s adresarmi
-#include <sys/stat.h>     // Linux: Operacie so subormi
-#include <fcntl.h>        // Linux: Nastavenia kontroly suborov
-#include <sys/time.h>     // Linux: Struktura pre cas (struct timeval)
-#include <errno.h>        // Linux: Sprava a hlasenie chyb
-#endif
-
 #include "monocypher.h"  // Pre Monocypher kryptograficke funkcie
 #include "siete.h"        // Pre sietove funkcie
 #include "constants.h"    // Shared constants
 #include "crypto_utils.h" // Pre kryptograficke funkcie
-
+#include "sake.h"         // Pre SAKE protokol
+#include "platform.h"     // Pre funkcie specificke pre operacny system
 
 // Globalne premenne pre kryptograficke operacie
 // Tieto premenne sa pouzivaju v celom programe pre sifrovacie operacie
@@ -55,40 +41,6 @@ uint8_t key[KEY_SIZE];          // Hlavny sifrovaci kluc
 uint8_t nonce[NONCE_SIZE];      // Jednorazova hodnota pre kazdy blok
 uint8_t salt[SALT_SIZE];        // Sol pre derivaciu kluca
 
-#ifdef _WIN32
-// Implementacia getpass() pre Windows platformu
-// Dovod: Windows nema nativnu implementaciu tejto funkcie
-// Parametre:
-//   - prompt: Text, ktory sa zobrazi uzivatelovi
-// Navratova hodnota:
-//   - Ukazovatel na zadane heslo (staticky buffer)
-char *getpass(const char *prompt) {
-    static char password[PASSWORD_BUFFER_SIZE]; // Pevna velkost pola pre heslo
-    size_t i = 0;
-    
-    printf("%s", prompt); // Vypis vyzvy pre zadanie hesla
-    
-    // Nacitavanie znakov po jednom bez ich zobrazenia
-    while (i < sizeof(password) - 1) {
-        char ch = getch();
-        if (ch == '\r' || ch == '\n') { // Enter ukonci zadavanie
-            break;
-        } else if (ch == '\b') { // Backspace pre mazanie
-            if (i > 0) {
-                i--;
-                printf("\b \b"); // Odstranenie znaku z obrazovky
-            }
-        } else {
-            password[i++] = ch;
-            printf("*"); // Zobrazenie hviezdicky namiesto znaku
-        }
-    }
-    password[i] = '\0'; // Ukoncenie retazca nulovym znakom
-    printf("\n");
-    
-    return password;
-}
-#endif
 
 int main() {
     // KROK 1: Inicializacia spojenia so serverom
@@ -125,7 +77,7 @@ int main() {
 
     // Nacitanie hesla od uzivatela a odvodenie hlavneho kluca pomocou Argon2
     // Heslo sa pouzije na generovanie kluca, ktory sa pouzije na sifrovanie dat
-    char *password = getpass(PASSWORD_PROMPT);
+    char *password = platform_getpass(PASSWORD_PROMPT);
     if (derive_key_client(password, key, salt) != 0) {
         fprintf(stderr, ERR_KEY_DERIVATION);
         cleanup_socket(sock);

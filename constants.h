@@ -3,7 +3,7 @@
  * Subor:      constants.h
  * Autor:      Jozef Kovalcin
  * Verzia:     1.0.0
- * Datum:      2025
+ * Datum:      05-03-2025
  *
  * Popis: 
  *     Hlavickovy subor obsahujuci vsetky konstanty pouzivane v programe:

@@ -3,7 +3,7 @@
  * Subor:      siete.h
  * Autor:      Jozef Kovalcin
  * Verzia:     1.0.0
- * Datum:      2025
+ * Datum:      05-03-2025
  * 
  * Popis: 
  *     Hlavickovy subor pre sietovu komunikaciu:
@@ -17,6 +17,7 @@
  * Zavislosti:
  *     - Standardne C kniznice pre sietovu komunikaciu
  *     - constants.h (konstanty programu)
+ *     - platform.h (platform-specificke funkcie)
  *******************************************************************************/
 
 #ifndef SIETE_H
@@ -24,17 +25,8 @@
 
 #include <stdint.h> // Kniznica pre datove typy (uint8_t, uint32_t)
 
-#ifdef _WIN32
-#include <winsock2.h>     // Windows: Zakladna sietova kniznica
-#else
-#include <unistd.h>       // Linux: Kniznica pre systemove volania (close, read, write)
-#include <sys/random.h>   // Linux: Generovanie kryptograficky bezpecnych nahodnych cisel
-#include <netinet/in.h>   // Linux: Sietove funkcie (adresy, porty, sockety)
-#include <errno.h>        // Linux: Kniznica pre systemove chyby
-#include <string.h>       // Linux: Kniznica pre pracu s retazcami
-#endif
-
 #include "constants.h"    // Definicie konstant pre program
+#include "platform.h"     // Pre funkcie specificke pre operacny system
 
 // Zakladne sietove funkcie
 // Funkcie pre spravu socketov a inicializaciu siete

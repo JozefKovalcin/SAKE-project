@@ -3,21 +3,20 @@
  * Subor:      crypto_utils.c
  * Autor:      Jozef Kovalcin
  * Verzia:     1.0.0
- * Datum:      2025
+ * Datum:      05-03-2025
  * 
  * Popis: 
- *     Implementacia kryptografickych operacii pre protokol SAKE: 
- *     - Implementacia SAKE protokolu pre autentificaciu a vymenu klucov
+ *     Implementacia kryptografickych operacii:
  *     - Bezpecne generovanie nahodnych cisel pre nonce a salt
  *     - Bezpecne odvodenie klucov pomocou Argon2
  *     - Rotacia klucov a ich validaciu pre pravidelne obmeny pocas prenosu
- *     - Odvodzovanie relacnych klucov zo zdielanych tajomstiev
- *     - Implementacia Doprednej ochrany pomocou jednosmernych funkcii
  * 
  * Zavislosti:
  *     - Monocypher 4.0.2 (sifrovacie algoritmy)
  *     - crypto_utils.h (deklaracie funkcii)
  *     - constants.h (konstanty programu)
+ *     - sake.h (pre SAKE protokol)
+ *     - platform.h (platform-specificke funkcie)
  *******************************************************************************/
 
 // Systemove kniznice
@@ -25,19 +24,10 @@
 #include <stdlib.h>       // Kniznica pre vseobecne funkcie (sprava pamate, konverzie, nahodne cisla)
 #include <string.h>       // Kniznica pre pracu s retazcami (kopirovanie, porovnavanie, spajanie)
 
-#ifdef _WIN32
-#include <winsock2.h>     // Windows: Zakladna sietova kniznica
-#include <windows.h>      // Windows: Zakladne systemove funkcie
-#include <bcrypt.h>       // Windows: Kryptograficke funkcie
-#else
-#include <sys/stat.h>     // Linux: Operacie so subormi a ich atributmi
-#include <sys/random.h>   // Linux: Generovanie kryptograficky bezpecnych nahodnych cisel
-#include <errno.h>        // Linux: Kniznica pre systemove chyby
-#include <string.h>       // Linux: Kniznica pre pracu s retazcami
-#endif
-
 #include "crypto_utils.h" // Pre kryptograficke funkcie
-#include "constants.h"    // Add this include for constants
+#include "constants.h"    // Pre konstanty programu
+#include "sake.h"         // Pre SAKE protokol
+#include "platform.h"     // Pre funkcie specificke pre operacny system
 
 // Pomocna funkcia pre vypis kryptografickych dat
 // Pouziva sa pri ladeni a kontrole
@@ -53,19 +43,9 @@ void print_hex(const char *label, uint8_t *data, int len) {
 // Generovanie kryptograficky bezpecnych nahodnych cisel
 // Pouziva systemove generatory (BCrypt na Windows, getrandom na Linuxe)
 void generate_random_bytes(uint8_t *buffer, size_t size) {
-#ifdef __linux__
-    if (getrandom(buffer, size, 0) == -1) {
-        fprintf(stderr, ERR_RANDOM_LINUX, strerror(errno));
-        exit(1);
+    if (platform_generate_random_bytes(buffer, size) != 0) {
+        exit(1);  // Error already reported by platform function
     }
-#elif defined(_WIN32)
-    if (BCryptGenRandom(NULL, buffer, size, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
-        fprintf(stderr, ERR_RANDOM_WINDOWS);
-        exit(1);
-    }
-#else
-    #error "Unsupported platform for random number generation"
-#endif
 }
 
 // Interna implementacia derivacie kluca
@@ -127,8 +107,8 @@ static int derive_key_internal(const char *password, const uint8_t *salt_input,
     
     free(work_area);
 
-    print_hex(generate_salt ? "Vygenerovana sol: " : "Pouziva sa sol: ", salt, SALT_SIZE);
-    print_hex("Odvodeny kluc: ", key, KEY_SIZE);
+    print_hex(generate_salt ? "Generated salt: " : "Using salt: ", salt, SALT_SIZE);
+    print_hex("Derived key: ", key, KEY_SIZE);
 
     return 0;
 }
@@ -178,146 +158,8 @@ void secure_wipe(void *data, size_t size) {
 // Pouziva sa na kontrolu ci obe strany maju rovnaky kluc
 void generate_key_validation(uint8_t *validation, const uint8_t *key) {
     crypto_blake2b_ctx ctx;
-    // Inicializacia BLAKE2b hashovacej funkcie s vystupom velkosti VALIDATION_SIZE
     crypto_blake2b_init(&ctx, VALIDATION_SIZE);  // Vzdy pouzijeme 16 bajtov pre validaciu
-    // Pridanie kluca do hashovacej funkcie
     crypto_blake2b_update(&ctx, key, KEY_SIZE);
-    // Finalizacia a ziskanie vysledneho hashu do validation buffra
     crypto_blake2b_final(&ctx, validation);
-    // Bezpecne vymazanie hashovacieho kontextu z pamate
-    crypto_wipe(&ctx, sizeof(ctx));
-}
-
-// SAKE protokol - implementacia funkcii
-
-// Odvodenie autentifikacneho kluca K' z hlavneho kluca K
-// Autentifikacny kluc sa pouziva vyhradne na overenie identity stran
-void derive_authentication_key(uint8_t *auth_key, const uint8_t *master_key) {
-    crypto_blake2b_ctx ctx;
-    // Inicializacia hashovacej funkcie pre vytvorenie noveho kluca
-    crypto_blake2b_init(&ctx, KEY_SIZE);
-    // Pridanie hlavneho kluca do hashu
-    crypto_blake2b_update(&ctx, master_key, KEY_SIZE);
-    // Pridanie specialneho tagu na odlisenie ucelov kluca
-    crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_AUTH_TAG, strlen(SAKE_DERIV_AUTH_TAG));
-    // Finalizacia a ziskanie autentifikacneho kluca
-    crypto_blake2b_final(&ctx, auth_key);
-    // Bezpecne vymazanie hashovacieho kontextu
-    crypto_wipe(&ctx, sizeof(ctx));
-    
-    // Vypis odvodenych hodnot pre kontrolu
-    print_hex("Derived authentication key: ", auth_key, KEY_SIZE);
-}
-
-// Generovanie vyzvy pre autentifikaciu
-// Vytvara kryptograficku vyzvu, ktoru musi klient spravne odpovedat
-void generate_challenge(uint8_t *challenge, uint8_t *server_nonce, 
-                      const uint8_t *auth_key, const uint8_t *client_nonce) {
-    // Vygenerovanie nahodneho nonce servera pre jedinecnost vyzvy
-    generate_random_bytes(server_nonce, SAKE_NONCE_SERVER_SIZE);
-    
-    // Vytvorenie vyzvy pomocou BLAKE2b
-    crypto_blake2b_ctx ctx;
-    crypto_blake2b_init(&ctx, SAKE_CHALLENGE_SIZE);
-    // Kombinacia autentifikacneho kluca a nonce hodnot
-    crypto_blake2b_update(&ctx, auth_key, KEY_SIZE);
-    crypto_blake2b_update(&ctx, client_nonce, SAKE_NONCE_CLIENT_SIZE);
-    crypto_blake2b_update(&ctx, server_nonce, SAKE_NONCE_SERVER_SIZE);
-    // Finalizacia a ziskanie vyzvy
-    crypto_blake2b_final(&ctx, challenge);
-    // Bezpecne vymazanie kontextu
-    crypto_wipe(&ctx, sizeof(ctx));
-    
-    // Vypis vygenerovanej vyzvy 
-    print_hex("Generated challenge: ", challenge, SAKE_CHALLENGE_SIZE);
-}
-
-// Vypocet odpovede na vyzvu
-// Pouziva sa na klientskej strane na vytvorenie odpovede na serverovu vyzvu
-int compute_response(uint8_t *response, const uint8_t *auth_key,
-                   const uint8_t *challenge, const uint8_t *server_nonce) {
-    crypto_blake2b_ctx ctx;
-    crypto_blake2b_init(&ctx, SAKE_RESPONSE_SIZE);
-    // Kombinacia autentifikacneho kluca, vyzvy a nonce servera
-    crypto_blake2b_update(&ctx, auth_key, KEY_SIZE);
-    crypto_blake2b_update(&ctx, challenge, SAKE_CHALLENGE_SIZE);
-    crypto_blake2b_update(&ctx, server_nonce, SAKE_NONCE_SERVER_SIZE);
-    // Finalizacia a ziskanie odpovede
-    crypto_blake2b_final(&ctx, response);
-    // Bezpecne vymazanie kontextu
-    crypto_wipe(&ctx, sizeof(ctx));
-    
-    // Vypis vypocitanej odpovede 
-    print_hex("Computed response: ", response, SAKE_RESPONSE_SIZE);
-    return 0;
-}
-
-// Overenie odpovede na vyzvu
-// Pouziva sa na strane servera na overenie, ci klient ma spravny kluc
-int verify_response(const uint8_t *response, const uint8_t *auth_key,
-                  const uint8_t *challenge, const uint8_t *server_nonce) {
-    // Vytvorenie ocakavanej odpovede lokalnym vypoctom
-    uint8_t expected_response[SAKE_RESPONSE_SIZE];
-    
-    // Vypocitanie odpovede rovnakym algoritmom ako klient
-    compute_response(expected_response, auth_key, challenge, server_nonce);
-    
-    // Porovnanie ocakavanej a prijatej odpovede v konstatnom case
-    // crypto_verify32 zabranuje casovym utokom porovnavanim v konstatnom case
-    if (crypto_verify32(expected_response, response) != 0) {
-        fprintf(stderr, MSG_SAKE_AUTH_FAILED);
-        return -1;
-    }
-    
-    // Autentifikacia uspesna
-    printf(MSG_SAKE_AUTH_SUCCESS);
-    return 0;
-}
-
-// Odvodenie kluca relacie z hlavneho kluca a nonce
-// Vytvara unikatny kluc pre kazdu relaciu
-void derive_session_key(uint8_t *session_key, const uint8_t *master_key,
-                       const uint8_t *client_nonce, const uint8_t *server_nonce) {
-    crypto_blake2b_ctx ctx;
-    crypto_blake2b_init(&ctx, SESSION_KEY_SIZE);
-    // Kombinacia hlavneho kluca, nonce hodnot a specialneho tagu
-    crypto_blake2b_update(&ctx, master_key, KEY_SIZE);
-    crypto_blake2b_update(&ctx, client_nonce, SAKE_NONCE_CLIENT_SIZE);
-    crypto_blake2b_update(&ctx, server_nonce, SAKE_NONCE_SERVER_SIZE);
-    // Pridanie specialneho tagu pre odlisenie ucelov kluca
-    crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_SESSION_TAG, strlen(SAKE_DERIV_SESSION_TAG));
-    // Finalizacia a ziskanie kluca relacie
-    crypto_blake2b_final(&ctx, session_key);
-    // Bezpecne vymazanie kontextu
-    crypto_wipe(&ctx, sizeof(ctx));
-    
-    // Vypis odvodeneho kluca relacie 
-    print_hex("Derived session key: ", session_key, SESSION_KEY_SIZE);
-}
-
-// Evolucia klucov po vytvoreni relacie
-// Zabezpecuje doprednu ochranu - aj pri kompromitacii aktualneho kluca
-// nie je mozne odhalit predchadzajuce spravy
-void evolve_keys(uint8_t *master_key, uint8_t *auth_key, uint64_t counter) {
-    // Ulozenie povodnych klucov pre neskor
-    uint8_t old_master[KEY_SIZE];
-    memcpy(old_master, master_key, KEY_SIZE);
-    
-    // Evolucia hlavneho kluca K pomocu hashovania s citacom
-    crypto_blake2b_ctx ctx;
-    crypto_blake2b_init(&ctx, KEY_SIZE);
-    crypto_blake2b_update(&ctx, master_key, KEY_SIZE);
-    // Pridanie hodnoty citaca pre jedinecnost
-    crypto_blake2b_update(&ctx, (uint8_t*)&counter, SAKE_KEY_COUNTER_SIZE);
-    // Pridanie specialneho tagu pre tento ucel
-    crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));
-    // Finalizacia a ziskanie noveho hlavneho kluca
-    crypto_blake2b_final(&ctx, master_key);
-    
-    // Odvodenie noveho autentifikacneho kluca K' z noveho hlavneho kluca
-    derive_authentication_key(auth_key, master_key);
-    
-    // Bezpecne vymazanie starych hodnot z pamate
-    secure_wipe(old_master, KEY_SIZE);
     crypto_wipe(&ctx, sizeof(ctx));
 }

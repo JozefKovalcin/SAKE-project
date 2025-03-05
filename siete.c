@@ -3,7 +3,7 @@
  * Subor:      siete.c
  * Autor:      Jozef Kovalcin
  * Verzia:     1.0.0
- * Datum:      2025
+ * Datum:      05-03-2025
  * 
  * Popis: 
  *     Implementacia sietovych funkcii pre zabezpeceny prenos:
@@ -17,30 +17,17 @@
  * Zavislosti:
  *     - siete.h (deklaracie sietovych funkcii)
  *     - constants.h (definicie konstant pre program)
+ *     - platform.h (platform-specificke funkcie)
  *******************************************************************************/
 
-#include <stdio.h>        // Kniznica pre standardny vstup a vystup (nacitanie zo suborov, vypis na obrazovku)
-#include <stdlib.h>       // Kniznica pre vseobecne funkcie (sprava pamate, konverzie, nahodne cisla)
-
-#ifdef _WIN32
-#include <winsock2.h>     // Windows: Zakladna sietova kniznica
-#include <ws2tcpip.h>     // Windows: Rozsirene sietove funkcie
-#include <windows.h>      // Windows: Zakladne systemove funkcie
-#ifndef MSG_NOSIGNAL
-    #define MSG_NOSIGNAL 0 // Windows: Nedefinovany flag pre send
-#endif
-#else
-#include <sys/socket.h>    // Linux: Sietove funkcie (socket, bind, listen, accept)
-#include <arpa/inet.h>     // Linux: Sietove funkcie (adresy, porty, sockety)
-#include <sys/time.h>      // Linux: Struktura pre cas (struct timeval)
-#include <netinet/tcp.h>   // Linux: TCP specific options like TCP_NODELAY
-#include <unistd.h>        // Linux: Kniznica pre systemove volania (close, read, write)
-#include <errno.h>         // Linux: Kniznica pre systemove chyby
-#include <string.h>        // Linux: Kniznica pre pracu s retazcami
-#endif
+#include <stdio.h>        // Kniznica pre standardny vstup a vystup
+#include <stdlib.h>       // Kniznica pre vseobecne funkcie
+#include <string.h>       // Kniznica pre pracu s retazcami
+#include <errno.h>        // Kniznica pre systemove chyby
 
 #include "siete.h"        // Pre sietove funkcie
-#include "constants.h"    // Add this include for error message constants
+#include "constants.h"    // Definicie konstant pre program
+#include "platform.h"     // Pre funkcie specificke pre operacny system
 
 // Implementacia funkcii pre spravu socketov
 // Rozdielna implementacia pre Windows a Linux
@@ -194,7 +181,7 @@ int accept_client_connection(int server_fd, struct sockaddr_in *client_addr) {
     }
     
     // Nastavenie pre formatovanie IP adresy zo sietoveho formatu do textoveho
-    // Z binarneho formatu vytvori retazec, napriklad "192.168.1.1"
+    // Priklad: Z binarneho formatu vytvori retazec "192.168.1.1"
     printf(MSG_CONNECTION_ACCEPTED, 
            inet_ntoa(client_addr->sin_addr),  // Prevedie IP adresu na citatelny text
            ntohs(client_addr->sin_port));     // Prevedie cislo portu zo sietoveho formatu
@@ -453,6 +440,7 @@ int send_encrypted_chunk(int socket, const uint8_t *nonce, const uint8_t *tag,
 int receive_encrypted_chunk(int sockfd, uint8_t *nonce, uint8_t *tag,
                           uint8_t *ciphertext, uint32_t chunk_size)
 {
+    // Odstrani debug vystup pre zjednodusenie konzoly
     
     if (recv_all(sockfd, nonce, NONCE_SIZE) != NONCE_SIZE) {
         fprintf(stderr, ERR_RECEIVE_ENCRYPTED_CHUNK);
