@@ -1,4 +1,4 @@
-Zabezpeceny prenos suborov cez SAKE protokol
+# Zabezpeceny prenos suborov cez SAKE protokol
 
 Tento projekt implementuje system pre zabezpeceny prenos suborov cez TCP/IP siet s vyuzitim SAKE protokolu (Symmetric-key Authenticated Key Exchange). Program zabezpecuje end-to-end sifrovanie s autentifikaciou, perfect forward secrecy, a rotaciu klucov pocas prenosu.
 
