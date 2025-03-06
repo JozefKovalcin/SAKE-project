@@ -2,7 +2,7 @@
 
 ## Implementacia protokolu
 
-Tento dokument podrobne popisuje implementaciu protokolu SAKE v projekte pre zabezpeceny prenos suborov. SAKE protokol zabezpecuje vzajomnu autentifikaciu a vymenu klucov medzi klientom a serverom bez pouzitia asymetrickej kryptografie, cim poskytuje vysoku bezpecnost a zaroven odolnost voci post-kvantovym utokom.
+SAKE protokol zabezpecuje vzajomnu autentifikaciu a vymenu klucov medzi klientom a serverom bez pouzitia asymetrickej kryptografie, cim poskytuje vysoku bezpecnost a zaroven odolnost voci post-kvantovym utokom.
 
 ## Popis Protokolu
 
