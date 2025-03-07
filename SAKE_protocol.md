@@ -41,8 +41,8 @@ SAKE je protokol pre autentifikovanu vymenu klucov pouzivajuci vylucne symetrick
 
 - **verify_response**:
   - Server samostatne vypocita ocakavanu odpoved pouzitim identickych vstupnych dat ako klient
-  - Pouziva funkciu crypto_verify32 pre bezpecne porovnanie, ktora vykonava porovnanie v konstantnom case
-    bez ohladu na obsah porovnavanych retazcov, cim zabranuje timing utokom
+  - Pouziva funkciu crypto_verify32 pre bezpecne porovnanie, ktora vykonava porovnanie v konstantnom
+    case bez ohladu na obsah porovnavanych retazcov, cim zabranuje timing utokom
 
 ### 3. Relacny kluc a rotacia klucov
 
