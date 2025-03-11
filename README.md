@@ -11,7 +11,7 @@ Tento projekt implementuje system pre zabezpeceny prenos suborov cez TCP/IP siet
 - Kontrola podvrhnutia alebo upravy dat
 
 ### Manazment klucov
-- Argon2id pre bezpecnu derivaciu klucov z hesiel
+- Argon2id pre bezpecne odvodenie klucov z hesiel
 - Symetricka autentifikacia medzi klientom a serverom
 - Automaticka rotacia klucov pocas dlhych prenosov
 - Validacia synchronizacie klucov medzi klientom a serverom
@@ -42,6 +42,18 @@ SAKE (Symmetric-key Authenticated Key Exchange) poskytuje:
 7. Obe strany odvodia session kluc z master kluca a oboch nonce hodnot
 8. Prebieha evolucia klucov pre zabezpecenie forward secrecy
 
+## Architektura systemu
+
+### Client-Server Model
+- Klient iniciuje spojenie a autentifikaciu
+- Server overuje identitu klienta a prijima sifrovane subory
+- Obe strany spolupracuju na zabezpeceni komunikacie
+
+### Implementacia key chain
+- Retazec klucov pre podporu forward secrecy
+- Automaticka evolucia klucov po uspesnej autentifikacii
+- Udrzuje predchadzajuci, aktualny a buduci kluc
+
 ## Hlavne komponenty
 
 ### Server (server.c)
@@ -59,10 +71,26 @@ SAKE (Symmetric-key Authenticated Key Exchange) poskytuje:
 
 ### Kryptograficke funkcie (crypto_utils.c, crypto_utils.h)
 - Generovanie nahodnych hodnot
-- Derivacia a rotacia klucov
+- Odvodenie a rotacia klucov
 - Implementacia SAKE protokolu
 - Validacia klucov
 - Generovanie a verifikacia MAC tagov
+
+### SAKE Protokol (sake.c, sake.h)
+- Implementacia protokolu pre symetricku autentifikaciu
+- Funkcie pre challenge-response autentifikaciu
+- Evolucia klucov a sprava key chain
+- Odvodenie session klucov
+
+### Platformova abstrakcia (platform.c, platform.h)
+- Kryptograficky bezpecne nahodne cisla
+- Bezpecne nacitanie hesla od uzivatela
+- Platformovo-nezavisle systemove volania
+
+### Sietova komunikacia (siete.c, siete.h)
+- Abstrakcia sietovych operacii
+- Sprava spojeni a timeoutov
+- Spolahlivy prenos s retransmisiou
 
 ## Poziadavky
 - C kompilator (GCC/MinGW)
@@ -110,6 +138,22 @@ Spustenie klienta:
    - Prebehne validacia spravnosti rotacie
    - Prenos pokracuje s novym klucom
 
+## Bezpecnostne vlastnosti
+
+### Perfect Forward Secrecy
+- Kompromitacia dlhodobeho kluca neohrozuje minule prenosy
+- Kazde spojenie pouziva nove nahodne kluce
+- Historia komunikacie je chranena aj pri ziskani aktualnych klucov
+
+### Post-Quantum Security
+- Symetricke algoritmy su odolne voci kvantovym utokom
+- Nepouziva zranitelne asymetricke algoritmy
+
+### Ochrana integrity dat
+- Autentifikacia pomocou MAC pre kazdy blok
+- Validacia integrity pomocou Poly1305
+- Overovanie synchronizacie klucov
+
 ## Chybove stavy
 Program obsahuje robustnu detekciu a spracovanie chyb:
 - Timeout pri sietovych operaciach
@@ -117,24 +161,6 @@ Program obsahuje robustnu detekciu a spracovanie chyb:
 - Corrupted alebo manipulovane data
 - Neuspesna synchronizacia klucov
 - Chyby pri praci so subormi
-
-## Bezpecnostne poznamky
-Vsetky citlive data su okamzite vymazane z pamate po pouziti
-
-Perfect forward secrecy zabezpecuje ze:
-- Kompromitacia dlhodobeho kluca neohrozuje minule prenosy
-- Kazde spojenie pouziva nove nahodne kluce
-- Historia komunikacie je chranena aj pri ziskani aktualnych klucov
-
-Pravidelna rotacia klucov:
-- Limituje mnozstvo dat sifrovanych jednym klucom
-- Poskytuje post-compromise security
-- Synchronne prebieha na oboch stranach
-
-Ochrana proti MitM utokom:
-- Autentifikacia pomocou zdielaneho hesla
-- Validacia integrity pomocou MAC
-- Overovanie synchronizacie klucov
 
 ## Vycistenie projektu
 ```bash
