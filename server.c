@@ -42,7 +42,7 @@
 uint8_t key[KEY_SIZE];          // Hlavny sifrovaci kluc
 uint8_t nonce[NONCE_SIZE];      // Jednorazova hodnota pre kazdy blok
 uint8_t salt[SALT_SIZE];        // Sol pre derivaciu kluca
-
+sake_key_chain_t key_chain;     // Struktura retazca klucov pre SAKE
 
 int main() {
     // Inicializacia sietovych prvkov
@@ -99,15 +99,15 @@ int main() {
     }
 
     // SAKE protokol - implementacia
-    uint8_t auth_key[KEY_SIZE];
-    uint8_t client_nonce[SAKE_NONCE_CLIENT_SIZE];
-    uint8_t server_nonce[SAKE_NONCE_SERVER_SIZE];
-    uint8_t challenge[SAKE_CHALLENGE_SIZE];
-    uint8_t response[SAKE_RESPONSE_SIZE];
-        uint8_t session_key[SESSION_KEY_SIZE];
+    uint8_t client_nonce[SAKE_NONCE_CLIENT_SIZE];  // Nonce vygenerované klientom
+    uint8_t server_nonce[SAKE_NONCE_SERVER_SIZE];  // Nonce prijate od servera
+    uint8_t challenge[SAKE_CHALLENGE_SIZE];        // VYzva prijata od servera
+    uint8_t response[SAKE_RESPONSE_SIZE];          // Odpoved vypocitana na vyzvu
+    uint8_t session_key[SESSION_KEY_SIZE];         // Kluc relacie
 
-    // Odvodenie autentifikacneho kluca
-    derive_authentication_key(auth_key, key);
+    // Inicializacia SAKE key chain pre server (responder)
+    // Odvodi authentication key z master key
+    sake_init_key_chain(&key_chain, key, 0); // 0 = responder
 
     // Prijatie nonce od klienta
     if (recv_all(client_socket, client_nonce, SAKE_NONCE_CLIENT_SIZE) != SAKE_NONCE_CLIENT_SIZE) {
@@ -116,8 +116,8 @@ int main() {
         return -1;
     }
 
-    // Generovanie vyzvy a nonce servera
-    generate_challenge(challenge, server_nonce, auth_key, client_nonce);
+    // Generovanie vyzvy a nonce servera - pouzivame aktualny authentication key
+    generate_challenge(challenge, server_nonce, key_chain.auth_key_curr, client_nonce);
     
     // Odoslanie nonce servera a vyzvy klientovi
     if (send_all(client_socket, server_nonce, SAKE_NONCE_SERVER_SIZE) != SAKE_NONCE_SERVER_SIZE ||
@@ -134,19 +134,18 @@ int main() {
         return -1;
     }
     
-    // Overenie odpovede
-    if (verify_response(response, auth_key, challenge, server_nonce) != 0) {
+    // Overenie odpovede - pouzivame aktualny authentication key
+    if (verify_response(response, key_chain.auth_key_curr, challenge, server_nonce) != 0) {
         fprintf(stderr, ERR_CLIENT_AUTH_FAILED);
         cleanup_sockets(client_socket, server_fd);
         return -1;
     }
     
-    // Odvodenie kluca relacie
-    derive_session_key(session_key, key, client_nonce, server_nonce);
+    // Odvodenie kluca relacie z hlavneho kluca
+    derive_session_key(session_key, key_chain.master_key, client_nonce, server_nonce);
     
     // Evolucia klucov po uspesnej autentifikacii
-        uint64_t key_counter = 1;  // Zaciname s hodnotou 1 pre prvu evoluciu
-    evolve_keys(key, auth_key, key_counter);
+    sake_update_key_chain(&key_chain);
     
     printf(LOG_SESSION_COMPLETE);
 
@@ -200,7 +199,7 @@ int main() {
 
     // Hlavny cyklus prenosu dat
     while (!transfer_complete) {
-                uint32_t chunk_size;
+        uint32_t chunk_size;
         if (receive_chunk_size_reliable(client_socket, &chunk_size) < 0) {
             fprintf(stderr, ERR_CHUNK_SIZE);
             transfer_complete = -1;
@@ -227,6 +226,25 @@ int main() {
                 break;
             }
 
+            // Prijatie noveho client nonce
+            uint8_t new_client_nonce[SAKE_NONCE_CLIENT_SIZE];
+            if (recv_all(client_socket, new_client_nonce, SAKE_NONCE_CLIENT_SIZE) != SAKE_NONCE_CLIENT_SIZE) {
+                fprintf(stderr, "Error: Failed to receive new client nonce\n");
+                transfer_complete = -1;
+                break;
+            }
+            
+            // Generovanie noveho server nonce
+            uint8_t new_server_nonce[SAKE_NONCE_SERVER_SIZE];
+            generate_random_bytes(new_server_nonce, SAKE_NONCE_SERVER_SIZE);
+            
+            // Odosielanie noveho server nonce
+            if (send_all(client_socket, new_server_nonce, SAKE_NONCE_SERVER_SIZE) != SAKE_NONCE_SERVER_SIZE) {
+                fprintf(stderr, "Error: Failed to send new server nonce\n");
+                transfer_complete = -1;
+                break;
+            }
+
             // Validacia rotacie kluca
             uint32_t signal;
             // Prijatie signalu pre validaciu rotacie kluca od klienta
@@ -237,11 +255,16 @@ int main() {
                 break;
             }
 
-            uint8_t previous_key[KEY_SIZE];
+            uint8_t previous_session_key[KEY_SIZE];
             // Zalohovanie aktualneho kluca pred rotaciou
-            memcpy(previous_key, session_key, KEY_SIZE);
-            // Vykonanie rotacie kluca - vytvorenie noveho kluca na zaklade predchadzajuceho
-            rotate_key(session_key, previous_key);
+            memcpy(previous_session_key, session_key, KEY_SIZE);
+            
+            // Pre session key pouzivame aktualizovany master key a nove nonce hodnoty
+            derive_session_key(session_key, key_chain.master_key, new_client_nonce, new_server_nonce);
+            
+            // Aktualizacia client_nonce a server_nonce pre ďalšie pouzitie
+            memcpy(client_nonce, new_client_nonce, SAKE_NONCE_CLIENT_SIZE);
+            memcpy(server_nonce, new_server_nonce, SAKE_NONCE_SERVER_SIZE);
 
             // Kontrola validacie kluca
             uint8_t client_validation[VALIDATION_SIZE];
@@ -264,7 +287,7 @@ int main() {
             }
 
             // Bezpecne vymazanie stareho kluca z pamate
-            secure_wipe(previous_key, KEY_SIZE);
+            secure_wipe(previous_session_key, KEY_SIZE);
             
             // Odoslanie potvrdenia klientovi, ze server je pripraveny pokracovat s novym klucom
             if (send_chunk_size_reliable(client_socket, KEY_ROTATION_READY) < 0) {
@@ -334,6 +357,9 @@ int main() {
     secure_wipe(buffer, TRANSFER_BUFFER_SIZE);
     secure_wipe(plaintext, TRANSFER_BUFFER_SIZE);
     secure_wipe(tag, TAG_SIZE);
+    
+    // Vymazanie key chain
+    secure_wipe(&key_chain, sizeof(key_chain));
 
     return (transfer_complete == 1) ? 0 : -1;
 }

@@ -7,10 +7,8 @@
  * 
  * Popis: 
  *     Implementacia platformovo-nezavislych operacii:
- *     - Abstrakcia sietovych operacii pre Windows a UNIX/Linux
  *     - Generovanie kryptograficky bezpecnych nahodnych cisel
  *     - Bezpecne nacitanie hesla od uzivatela
- *     - Abstrakcie casovych funkcii a systemovych volani
  * 
  * Zavislosti:
  *     - platform.h (deklaracie funkcii)

@@ -139,6 +139,10 @@
 #define ERR_KEY_VALIDATE_RECEIVE "Error: Failed to receive key validation\n" // Chyba pri prijimani validacie kluca
 #define ERR_KEY_VALIDATE_MISMATCH "Error: Key validation failed - keys do not match\n" // Kluce sa nezhoduju pri validacii
 #define ERR_KEY_ROTATION_READY "Error: Failed to confirm key rotation\n" // Chyba pri potvrdeni pripravenosti na novy kluc
+#define ERR_NEW_CLIENT_NONCE_SEND "Error: Failed to send new client nonce\n" // Chyba pri odosielani noveho client nonce
+#define ERR_NEW_CLIENT_NONCE_RECEIVE "Error: Failed to receive new client nonce\n" // Chyba pri prijimani noveho client nonce
+#define ERR_NEW_SERVER_NONCE_SEND "Error: Failed to send new server nonce\n" // Chyba pri odosielani noveho server nonce
+#define ERR_NEW_SERVER_NONCE_RECEIVE "Error: Failed to receive new server nonce\n" // Chyba pri prijimani noveho server nonce
 
 // Chybove spravy pre casove limity
 #define ERR_TIMEOUT_RECV "Error: Failed to set receive timeout (%s)\n" // Chyba pri nastaveni timeoutu pre prijem

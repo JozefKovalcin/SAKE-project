@@ -2,16 +2,31 @@
 
 ## Implementacia protokolu
 
-SAKE protokol zabezpecuje vzajomnu autentifikaciu a vymenu klucov medzi klientom a serverom bez pouzitia asymetrickej kryptografie, cim poskytuje vysoku bezpecnost a zaroven odolnost voci post-kvantovym utokom.
+Tento dokument podrobne popisuje implementaciu protokolu SAKE v projekte pre zabezpeceny prenos suborov. SAKE protokol zabezpecuje vzajomnu autentifikaciu a vymenu klucov medzi klientom a serverom bez pouzitia asymetrickej kryptografie, cim poskytuje vysoku bezpecnost a zaroven odolnost voci post-kvantovym utokom.
 
 ## Popis Protokolu
 
 SAKE je protokol pre autentifikovanu vymenu klucov pouzivajuci vylucne symetricke kryptograficke primitiva. Umoznuje dvom stranam, ktore zdielaju tajny kluc, vzajomne sa autentifikovat a vytvorit bezpecne spojenie.
 
+## Struktura Key Chain
+
+V implementacii sa vyuziva system "key chain" (retazec klucov):
+
+1. **Master Key** - Hlavny kluc, ktory je zakladom celeho retazca klucov
+2. **Authentication Key** - Kluc pre autentifikaciu odvodeny z Master Key
+3. **Session Key** - Kluc pre sifrovanie komunikacie odvodeny z Master Key a nonce hodnot
+
+Pre kazdy ucastnik sa udrziavaju:
+- **auth_key_prev** - Predchadzajuci autentifikacny kluc
+- **auth_key_curr** - Aktualny autentifikacny kluc
+- **auth_key_next** - Nasledujuci autentifikacny kluc (pre plynulu rotaciu)
+- **epoch** - Pocitadlo verzie kluca
+- **is_initiator** - Priznak, ci ide o iniciatora spojenia
+
 ## Klucove Komponenty
 
 1. **Master Kluc** - Zdielany tajny kluc odvodeny z hesla pomocou Argon2i s velkostou 32 bajtov (256 bitov)
-2. **Derivacny Kluc (K)** - Pouziva sa na odvodenie relacnych klucov, aktualizovany pocas evolucii kluca
+2. **Odvodzovaci Kluc (K)** - Pouziva sa na odvodenie relacnych klucov, aktualizovany pocas evolucii kluca
 3. **Autentifikacny Kluc (K')** - Odvodeny z K pomocou BLAKE2b, pouziva sa na autentifikaciu sprav
 4. **Pocitadlo Verzii** - Pre sledovanie evolucie klucov (8-bajtova hodnota)
 5. **Nonce hodnoty** - Nahodne hodnoty na strane klienta (16 bajtov) a servera (16 bajtov)
@@ -40,9 +55,8 @@ SAKE je protokol pre autentifikovanu vymenu klucov pouzivajuci vylucne symetrick
   - Odpoved ma velkost 32 bajtov
 
 - **verify_response**:
-  - Server samostatne vypocita ocakavanu odpoved pouzitim identickych vstupnych dat ako klient
-  - Pouziva funkciu crypto_verify32 pre bezpecne porovnanie, ktora vykonava porovnanie v konstantnom
-    case bez ohladu na obsah porovnavanych retazcov, cim zabranuje timing utokom
+  - Server verifikuje odpoved klienta pomocou rovnakeho vypoctu a konstant-case porovnania
+  - Pouziva funkciu crypto_verify32 pre bezpecne porovnanie odpovedajuce konstatny cas
 
 ### 3. Relacny kluc a rotacia klucov
 
@@ -53,12 +67,17 @@ SAKE je protokol pre autentifikovanu vymenu klucov pouzivajuci vylucne symetrick
 
 - **rotate_key**:
   - Implementuje rotaciu klucov pocas prenosu dat (po kazdych 1024 blokoch)
-  - Pouziva hashovacie derivovanie BLAKE2b s predchadzajucim klucom ako vstupom
+  - Pouziva hashovacie odvodzovanie BLAKE2b s predchadzajucim klucom ako vstupom
 
 - **evolve_keys**:
   - Aktualizuje hlavny kluc K a autentifikacny kluc K'
   - Pouziva counter pre zabranenie opakovania klucov
   - Vstupmi su: povodny kluc K, hodnota pocitadla a tag "SAKE_K"
+
+- **sake_update_key_chain**:
+  - Posunie kluce v retazci o jednu epochu dopredu
+  - Pre initiator aktualizuje vsetky tri autentifikacne kluce
+  - Pre responder aktualizuje iba aktualny kluc
 
 ### 4. Overovanie synchronizacie klucov
 
@@ -67,74 +86,124 @@ SAKE je protokol pre autentifikovanu vymenu klucov pouzivajuci vylucne symetrick
   - Pouziva aktualne platny kluc ako vstup
   - Sluzi na overenie, ci obe strany maju rovnaky kluc po rotacii
 
+- **sake_init_key_chain**:
+  - Inicializuje strukturu retazca klucov pre SAKE
+  - Nastavuje rozne spravanie pre initiator a responder
+  - Pripravuje vsetky potrebne kluce pre autentifikaciu
+
 ## Podrobny Priebeh Protokolu
 
-1. **Inicializacia spojenia**:
-   - Klient odvodzuje kluc z hesla a generuje sol pomocou `derive_key_client`
-   - Klient posiela sol serveru
-   - Server odvodzuje rovnaky kluc z rovnakeho hesla pomocou `derive_key_server`
-   - Z hlavneho kluca sa odvodzuje autentifikacny kluc pomocou `derive_authentication_key`
+### 1. Inicializacia spojenia
 
-2. **SAKE Autentifikacia**:
-   - Klient generuje nahodny nonce (16 bajtov) a posiela ho serveru
-   - Server generuje vlastny nonce (16 bajtov) a challenge (32 bajtov) pomocou `generate_challenge`
-   - Server posiela svoj nonce a challenge klientovi
-   - Klient vypocita odpoved pomocou `compute_response` a posiela ju serveru
-   - Server overuje odpoved pomocou `verify_response`
+```
+Klient                              Server
+  |                                   |
+  | --- [Salt] ------------------>    | Klient generuje sol a posiela ju serveru
+  |                                   |
+  |                                   | Server odvodi master kluc K z hesla a prijatej soli
+  |                                   |
+  | <-- [KEYOK] -------------------   | Server potvrdzuje prijem soli
+  |                                   |
+```
 
-3. **Vytvorenie zabezpeceneho spojenia**:
-   - Po uspesnej autentifikacii obe strany odvodzuju relacny kluc pomocou `derive_session_key`
-   - Server posiela potvrdenie o uspesnej autentifikacii
-   - Obe strany aktualizuju hlavny kluc a autentifikacny kluc pomocou `evolve_keys`
+### 2. SAKE Autentifikacia
 
-4. **Zabezpeceny prenos dat**:
-   - Data su sifrovane pomocou ChaCha20-Poly1305 s relacnym klucom
-   - Kazdy blok ma jedinecny nonce a autentifikacny tag
-   - Po kazdych 1024 blokoch sa kluc rotuje pomocou `rotate_key`
-   - Po rotacii kluca sa validuje jeho synchronizacia pomocou `generate_key_validation`
+```
+Klient                              Server
+  |                                   |
+  | --- [Client_Nonce] ----------->   | Klient posiela nahodny nonce
+  |                                   |
+  |                                   | Server generuje vlastny nonce a challenge
+  |                                   |
+  | <-- [Server_Nonce][Challenge] --  | Server posiela nonce a challenge
+  |                                   |
+  | Klient vypocita odpoved           |
+  |                                   |
+  | --- [Response] --------------->   | Klient posiela odpoved
+  |                                   |
+  |                                   | Server overuje odpoved
+  |                                   |
+```
 
-5. **Ukoncenie spojenia**:
-   - Po dokonceni prenosu je odoslany marker konca suboru (chunk_size = 0)
-   - Server potvrduje uspesne prijatie dat
-   - Spojenie je bezpecne ukoncene a vsetky citlive data su vymazane z pamati pomocou `secure_wipe`
+### 3. Ustanovenie session kluca a evolucia klucov
+
+```
+Klient                              Server
+  |                                   |
+  | Odvodenie session kluca           | Odvodenie session kluca
+  | z master kluca K a nonce hodnot   | z master kluca K a nonce hodnot
+  |                                   |
+  | Evolucia master kluca             | Evolucia master kluca
+  | K_(j) -> K_(j+1)                  | K_(j) -> K_(j+1)
+  |                                   |
+```
+
+### 4. Rotacia klucov pocas prenosu
+
+```
+Klient                              Server
+  |                                   |
+  | --- [KEY_ROTATION_MARKER] ----->  | Signalizacia rotacie kluca
+  |                                   |
+  | <-- [KEY_ROTATION_ACK] -------    | Potvrdenie pripravenosti
+  |                                   |
+  | --- [New_Client_Nonce] ------->   | Novy klient nonce
+  |                                   |
+  | <-- [New_Server_Nonce] -------    | Novy server nonce
+  |                                   |
+  | --- [KEY_ROTATION_VALIDATE] -->   | Signal pre validaciu klucov
+  |                                   |
+  | Odvodi novy session kluc          | Odvodi novy session kluc
+  |                                   |
+  | --- [Validation_Code] -------->   | Odoslanie validacneho kodu
+  |                                   |
+  |                                   | Overenie validacneho kodu
+  |                                   |
+  | <-- [KEY_ROTATION_READY] ------   | Potvrdenie synchronizacie
+  |                                   |
+```
 
 ## Bezpecnostne Vlastnosti a Implementovane Ochrany
 
-1. **Forward Secrecy** 
-   - Evolucne aktualizacie klucov zabrania odvodeniu predoslych klucov z aktualnych
-   - Funkcia `evolve_keys` zabezpecuje jednosmerne aktualizacie klucov
+### 1. Forward Secrecy 
+- Po evolucii klucov nie je mozne odvodit predchadzajuce kluce
+- Evolucia je jednosmerna, co zabezpecuje, ze ani pri kompromitacii aktualneho kluca nie su ohrozene predchadzajuce komunikacie
 
-2. **Vzajomna Autentifikacia** 
-   - Challenge-response mechanizmus overuje posiadanie zdielaneho kluca na oboch stranach
-   - Server overuje odpoved klienta cez `verify_response`
+### 2. Vzajomna Autentifikacia 
+- Challenge-response mechanizmus vyuziva zdielany tajny kluc
+- Autentifikacia prebieha bez prezradenia tajneho kluca
 
-3. **Ochrana Proti Replay Utokom** 
-   - Jedinecne nahodne nonce hodnoty pre kazdu relaciu
-   - Pravidelna rotacia klucov pocas prenosu dat
+### 3. Ochrana Proti Replay Utokom 
+- Jedinecne nonce hodnoty pre kazdu relaciu
+- Rotacia klucov pocas prenosu
 
-4. **Ochrana Proti Timing Utokom**
-   - Pouzitie funkcie `crypto_verify32` pre porovnanie v konstantom case
-   - Bezpecne vymazanie citlivych dat z pamati pomocou `secure_wipe`
+### 4. Ochrana Proti Timing Utokom
+- Pouzivanie konstantno-casovych porovnavacich funkcii (`crypto_verify32`)
+- Bezpecne vymazanie pamate po pouziti (`secure_wipe`)
+- Ziadne podmienene vetvenia zavisle na tajnych datach
 
-5. **Separacia Klucov** 
-   - Rozne kluce pre rozne ucely s vhodnou domenovou separaciou
-   - Separacne tagy pre odlisenie roznych pouziti hashovacej funkcie
+### 5. Separacia Klucov 
+- Rozne kluce pre rozne ucely s vhodnou separaciou domen
+- Pouzitie tagov pre odlisenie odvodzovania klucov
 
-6. **Overenie Integrity Klucov**
-   - Validacia synchronizacie klucov po rotacii pomocou `generate_key_validation`
-   - Detekcia nezhody klucov a zabranenie pokracovaniu s nesynchornizovanymi klucmi
+### 6. Ochrana integrity
+- Vyuzitie AEAD (Authenticated Encryption with Associated Data)
+- Overovanie integrity dat pomocou MAC tagov
+- Validacia synchronizacie klucov
 
 ## Vyhody Implementacie
 
-1. **Post-kvantova Bezpecnost** - Nepouziva asymetricku kryptografiu zranitelnu kvantovymi algoritmami
-2. **Vysoka Vykonnost** - Symetricke algoritmy su rychlejsie ako asymetricke
-3. **Nizka Pamatova Narocnost** - Vhodne pre obmedzene zariadenia
-4. **Pravidelna Rotacia Klucov** - Obmedzuje mozny dopad kompromitacie kluca
-5. **Detekcia Synchronizacnych Problemov** - Automaticka kontrola synchronizacie klucov
+1. **Post-kvantova bezpecnost** - Pouziva len symetricke kryptograficke primitiva, ktore su odolne voci znamym kvantovym algoritmom
+2. **Vysoky vykon** - Symetricka kryptografia je rychlejsia ako asymetricka
+3. **Nizka pamatova narocnost** - Vhodne pre obmedzene zariadenia
+4. **Pravidelna rotacia klucov** - Obmedzuje riziko pri kompromitacii kluca
+5. **Autorizacia a autentifikacia** - Zabudovana do protokolu bez potreby dodatocnych mechanizmov
+6. **Robustny key management** - Systematicka sprava klucov s podporou evolucie
 
 ## Pouzite Kryptograficke Primitiva
 
 Protokol je implementovany pomocou kniznice Monocypher 4.0.2 s tymito algoritmami:
-- BLAKE2b pre vsetky operacie odvodzovania klucov, MAC a validacie
-- ChaCha20-Poly1305 pre autentifikovane sifrovanie aplikacnych dat
-- Argon2i pre pociatocne odvodenie klucov z hesla s ochranu proti utokom hrubou silou
+- **BLAKE2b** - Moderna kryptograficka hashovacia funkcia pre odvodzovanie klucov a MAC
+- **ChaCha20-Poly1305** - AEAD sifrovaci algoritmus pre sifrovanie s autentifikaciou
+- **Argon2i** - Funkcia na odvodzovanie klucov z hesiel odolna voci hardverovym utokom
+- **Konstantno-casove porovnavacie funkcie** - Pre bezpecne porovnavanie klucov a MAC hodnot

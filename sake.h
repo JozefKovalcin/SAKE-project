@@ -24,6 +24,16 @@
 #include "constants.h" // Definicie konstant pre program
 #include "monocypher.h" // Pre Monocypher kryptograficke funkcie
 
+// Struktura pre uchovavanie retazca klucov pre SAKE
+typedef struct {
+    uint8_t master_key[32];     // Aktualny master key K_j
+    uint8_t auth_key_prev[32];  // Predosly authentication key K'_(j-1)
+    uint8_t auth_key_curr[32];  // Aktualny authentication key K'_j
+    uint8_t auth_key_next[32];  // Dalsi authentication key K'_(j+1)
+    uint64_t epoch;             // Aktualne cislo j 
+    int is_initiator;           // Iniciator = 0; Responder = 1
+} sake_key_chain_t;
+
 // SAKE protokol - funkcie pre autentifikáciu a výmenu kľúčov
 void derive_authentication_key(uint8_t *auth_key,     // Odvodenie autentifikacneho kluca K' z hlavneho kluca K
                               const uint8_t *master_key);
@@ -47,6 +57,10 @@ void derive_session_key(uint8_t *session_key,        // Odvodenie kluca relacie 
                         const uint8_t *master_key,
                         const uint8_t *client_nonce,
                         const uint8_t *server_nonce);
+
+void sake_init_key_chain(sake_key_chain_t *chain, const uint8_t *master_key, int is_initiator); // Inicializacia retazca klucov pre SAKE
+
+void sake_update_key_chain(sake_key_chain_t *chain); // Aktualizacia retazca klucov
 
 void evolve_keys(uint8_t *master_key,               // Evolucia klucov po vytvoreni relacie
                 uint8_t *auth_key,

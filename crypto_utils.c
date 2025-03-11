@@ -44,7 +44,7 @@ void print_hex(const char *label, uint8_t *data, int len) {
 // Pouziva systemove generatory (BCrypt na Windows, getrandom na Linuxe)
 void generate_random_bytes(uint8_t *buffer, size_t size) {
     if (platform_generate_random_bytes(buffer, size) != 0) {
-        exit(1);  // Error already reported by platform function
+        exit(1);  // Error pri generovani nahodnych cisel
     }
 }
 

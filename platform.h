@@ -7,10 +7,8 @@
  * 
  * Popis: 
  *     Hlavickovy subor pre platformovo-nezavisle operacie:
- *     - Abstrakcia sietovych operacii pre Windows a UNIX/Linux
  *     - Funkcie pre bezpecne generovanie nahodnych cisel
  *     - Platformovo nezavisle bezpecne nacitanie hesla
- *     - Abstrakcie casovych funkcii a systemovych volani
  * 
  * Zavislosti:
  *     - Standardne C kniznice
@@ -55,21 +53,10 @@
     #define INVALID_SOCKET_VALUE -1
 #endif
 
-// Sietove funkcie
-void platform_initialize_network(void);
-void platform_cleanup_network(void);
-void platform_close_socket(socket_t sock);
-int platform_socket_valid(socket_t sock);
-int platform_socket_error(void);
-const char* platform_socket_error_string(int error_code);
-int platform_set_socket_timeout(socket_t sock, int timeout_ms);
-int platform_set_socket_nodelay(socket_t sock, int enable);
 
 // Bezpecnostne funkcie
 int platform_generate_random_bytes(uint8_t *buffer, size_t size);
 char* platform_getpass(const char *prompt);
 
-// Casove funkcie
-void platform_sleep(int milliseconds);
 
 #endif // PLATFORM_H

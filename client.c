@@ -40,7 +40,7 @@
 uint8_t key[KEY_SIZE];          // Hlavny sifrovaci kluc
 uint8_t nonce[NONCE_SIZE];      // Jednorazova hodnota pre kazdy blok
 uint8_t salt[SALT_SIZE];        // Sol pre derivaciu kluca
-
+sake_key_chain_t key_chain;     // Struktura retazca klucov pre SAKE
 
 int main() {
     // KROK 1: Inicializacia spojenia so serverom
@@ -101,15 +101,15 @@ int main() {
     // KROK 3: SAKE protokol - autentifikačná výmena kľúčov
     printf(LOG_SESSION_START);
 
-    uint8_t auth_key[KEY_SIZE];                // Autentifikačný kľúč odvodený z hlavného kľúča
     uint8_t client_nonce[SAKE_NONCE_CLIENT_SIZE];  // Nonce vygenerované klientom
-    uint8_t server_nonce[SAKE_NONCE_SERVER_SIZE];  // Nonce prijaté od servera
-    uint8_t challenge[SAKE_CHALLENGE_SIZE];     // Výzva prijatá od servera
-    uint8_t response[SAKE_RESPONSE_SIZE];       // Odpoveď vypočítaná na výzvu
-    uint8_t session_key[SESSION_KEY_SIZE];      // Kľúč relácie
+    uint8_t server_nonce[SAKE_NONCE_SERVER_SIZE];  // Nonce prijate od servera
+    uint8_t challenge[SAKE_CHALLENGE_SIZE];        // VYzva prijata od servera
+    uint8_t response[SAKE_RESPONSE_SIZE];          // Odpoved vypocitana na vyzvu
+    uint8_t session_key[SESSION_KEY_SIZE];         // Kluc relacie
 
-    // Odvodenie autentifikačného kľúča z hlavného kľúča
-    derive_authentication_key(auth_key, key);
+    // Inicializacia SAKE key chain pre klienta (iniciator)
+    // Odvodi authentication key z master key
+    sake_init_key_chain(&key_chain, key, 1); // 1 = iniciator
 
     // Generovanie a odoslanie klientovho nonce
     generate_random_bytes(client_nonce, SAKE_NONCE_CLIENT_SIZE);
@@ -127,8 +127,8 @@ int main() {
         return -1;
     }
 
-    // Výpočet odpovede na výzvu
-    if (compute_response(response, auth_key, challenge, server_nonce) != 0) {
+    // Vypocet odpovede na vyzvu - pouziva sa aktualny autentifikacny kluc
+    if (compute_response(response, key_chain.auth_key_curr, challenge, server_nonce) != 0) {
         fprintf(stderr, ERR_COMPUTE_RESPONSE);
         cleanup_socket(sock);
         return -1;
@@ -141,15 +141,11 @@ int main() {
         return -1;
     }
 
-    // Odvodenie kľúča relácie
-    derive_session_key(session_key, key, client_nonce, server_nonce);
+    // Odvodenie kluca relacie z hlavneho kluca a nonce hodnot
+    derive_session_key(session_key, key_chain.master_key, client_nonce, server_nonce);
 
-    // Evolúcia kľúčov po úspešnej autentifikácii
-    uint64_t key_counter = 1;  // Začíname s hodnotou 1 pre prvú evolúciu
-    evolve_keys(key, auth_key, key_counter);
-
-    // Vyčistenie citlivých kľúčových materiálov
-    secure_wipe(auth_key, KEY_SIZE);
+    // Evolucia klucov po uspesnej autentifikacii
+    sake_update_key_chain(&key_chain);
 
     printf(LOG_SESSION_COMPLETE);
 
@@ -262,16 +258,39 @@ int main() {
                 break;
             }
 
+            // Generovanie novych nonce pre odvodenie session key 
+            uint8_t new_client_nonce[SAKE_NONCE_CLIENT_SIZE];
+            generate_random_bytes(new_client_nonce, SAKE_NONCE_CLIENT_SIZE);
+            
+            // Odosielanie noveho client nonce
+            if (send_all(sock, new_client_nonce, SAKE_NONCE_CLIENT_SIZE) != SAKE_NONCE_CLIENT_SIZE) {
+                fprintf(stderr, "Error: Failed to send new client nonce\n");
+                break;
+            }
+            
+            // Prijatie noveho server nonce
+            uint8_t new_server_nonce[SAKE_NONCE_SERVER_SIZE];
+            if (recv_all(sock, new_server_nonce, SAKE_NONCE_SERVER_SIZE) != SAKE_NONCE_SERVER_SIZE) {
+                fprintf(stderr, "Error: Failed to receive new server nonce\n");
+                break;
+            }
+
             // Odoslanie validacneho signalu
             if (send_chunk_size_reliable(sock, KEY_ROTATION_VALIDATE) < 0) {
                 fprintf(stderr, ERR_KEY_VALIDATE_SIGNAL);
                 break;
             }
 
-            // Vykonanie rotacie kluca
-            uint8_t previous_key[KEY_SIZE];
-            memcpy(previous_key, session_key, KEY_SIZE);
-            rotate_key(session_key, previous_key);
+            // Vykonanie rotacie kluca pomcou SAKE key chain
+            uint8_t previous_session_key[KEY_SIZE];
+            memcpy(previous_session_key, session_key, KEY_SIZE);
+            
+            // Pre session key pouzivame aktualizovany master key a nove nonce hodnoty
+            derive_session_key(session_key, key_chain.master_key, new_client_nonce, new_server_nonce);
+
+            // Aktualizacia client_nonce a server_nonce pre ďalsie pouzitie
+            memcpy(client_nonce, new_client_nonce, SAKE_NONCE_CLIENT_SIZE);
+            memcpy(server_nonce, new_server_nonce, SAKE_NONCE_SERVER_SIZE);
 
             // Generovanie a odoslanie validacie kluca
             uint8_t validation[VALIDATION_SIZE];
@@ -287,7 +306,7 @@ int main() {
                 break;
             }
 
-            secure_wipe(previous_key, KEY_SIZE);
+            secure_wipe(previous_session_key, KEY_SIZE);
             wait();
         }
 
@@ -365,6 +384,9 @@ int main() {
     secure_wipe(buffer, TRANSFER_BUFFER_SIZE);
     secure_wipe(ciphertext, TRANSFER_BUFFER_SIZE);
     secure_wipe(tag, TAG_SIZE);
+    
+    // Vymazanie key chain
+    secure_wipe(&key_chain, sizeof(key_chain));
 
     return (total_bytes > 0) ? 0 : -1; 
 }

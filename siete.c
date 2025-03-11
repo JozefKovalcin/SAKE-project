@@ -34,97 +34,43 @@
 
 // Uvolnenie Winsock pre Windows platformu
 void cleanup_network(void) {
-#ifdef _WIN32
-    WSACleanup();
-#endif
+    NETWORK_CLEANUP();
 }
 
 // Bezpecne zatvorenie socketu
-// Rozdielna implementacia pre Windows (closesocket) a Linux (close)
 void cleanup_socket(int sock) {
-#ifdef _WIN32
-    closesocket(sock);
-#else
-    close(sock);
-#endif
+    SOCKET_CLOSE(sock);
 }
 
 // Zatvorenie oboch socketov (klient + server)
 // Pouzivane pri ukonceni spojenia alebo chybe
 void cleanup_sockets(int new_socket, int server_fd) {
-#ifdef _WIN32
-    closesocket(new_socket);
-    closesocket(server_fd);
-#else
-    close(new_socket);
-    close(server_fd);
-#endif
+    SOCKET_CLOSE(new_socket);
+    SOCKET_CLOSE(server_fd);
 }
 
 // Inicializacia sietovej kniznice pre Windows
 // Na Linuxe nie je potrebna
 void initialize_network(void) {
-#ifdef _WIN32
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        fprintf(stderr, ERR_WINSOCK_INIT);
-        exit(-1);
-    }
-#endif
+    NETWORK_INIT();
 }
 
 // Bezpecne ukoncenie socketu
 // Zaistuje korektne ukoncenie spojenia
 void shutdown_socket(int sock) {
-#ifdef _WIN32
-    shutdown(sock, SD_BOTH);
-    Sleep(SOCKET_SHUTDOWN_DELAY_MS);    // Cakanie na ukoncenie vsetkych prenosov
-#else
-    shutdown(sock, SHUT_RDWR);
-    sleep(SOCKET_SHUTDOWN_DELAY_MS / 1000);  // Prevod na sekundy pre Linux
-#endif
+    SOCKET_SHUTDOWN(sock);
 }
 
 // Cakacia funkcia s platformovo nezavislou implementaciou
 void wait(void) {
-#ifdef _WIN32
-    Sleep(WAIT_DELAY_MS);    // Pauza pre synchronizaciu komunikacie
-#else
-    usleep(WAIT_DELAY_MS * 1000);    // Prevod na mikrosekundy pre Linux
-#endif
+    WAIT_MS(WAIT_DELAY_MS);
 }
 
 // Nastavenie timeoutov pre socket
 // Zaistuje, ze operacie nebudu blokovat program donekonecna
 void set_timeout_options(int sock) {
-#ifdef _WIN32
-    // Windows pouziva DWORD (milisekundy) pre timeout
-    DWORD timeout = SOCKET_TIMEOUT_MS;
-    // Nastavenie pre prijimanie aj odosielanie
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) != 0) {
-        fprintf(stderr, ERR_TIMEOUT_RECV, strerror(errno));
-    }
-    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout)) != 0) {
-        fprintf(stderr, ERR_TIMEOUT_SEND, strerror(errno));
-    }
-    
-    // Pridane: Nastavenie keepalive pre detekciu odpojenia
-    BOOL keepalive = TRUE;
-    if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepalive, sizeof(keepalive)) != 0) {
-        fprintf(stderr, ERR_KEEPALIVE);
-    }
-#else
-    // Linux pouziva struct timeval (sekundy a mikrosekundy) pre timeout
-    struct timeval timeout;
-    timeout.tv_sec = SOCKET_TIMEOUT_MS / 1000;     // Prevod milisekund na sekundy
-    timeout.tv_usec = (SOCKET_TIMEOUT_MS % 1000) * 1000;  // Zvysok v mikrosekundach
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const void *)&timeout, sizeof(timeout)) != 0) {
-        fprintf(stderr, ERR_TIMEOUT_RECV, strerror(errno));
-    }
-    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const void *)&timeout, sizeof(timeout)) != 0) {
-        fprintf(stderr, ERR_TIMEOUT_SEND, strerror(errno));
-    }
-#endif
+    SET_SOCKET_TIMEOUT(sock, SOCKET_TIMEOUT_MS);
+    SET_KEEPALIVE(sock);
 }
 
 // Serverove funkcie
@@ -232,11 +178,7 @@ int connect_to_server(const char *address) {
 
 // Prijatie kryptografickej soli od klienta
 int receive_salt(int socket, uint8_t *salt) {
-    #ifdef _WIN32
-    return (recv(socket, (char *)salt, SALT_SIZE, 0) == SALT_SIZE) ? 0 : -1;
-    #else
-    return (read(socket, salt, SALT_SIZE) == SALT_SIZE) ? 0 : -1;
-    #endif
+    return (RECV_DATA(socket, salt, SALT_SIZE) == SALT_SIZE) ? 0 : -1;
 }
 
 // Odoslanie kryptografickej soli serveru
@@ -286,25 +228,12 @@ int send_key_acknowledgment(int socket) {
 // Nastavi timeout pre socket operacie
 // - timeout_ms: cas v milisekundach
 void set_socket_timeout(int socket, int timeout_ms) {
-#ifdef _WIN32
-    DWORD timeout = timeout_ms;
-    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-#else
-    struct timeval timeout;
-    timeout.tv_sec = timeout_ms / 1000;
-    timeout.tv_usec = (timeout_ms % 1000) * 1000;
-    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-#endif
+    SET_SOCKET_TIMEOUT(socket, timeout_ms);
 }
 
 // Vypne TCP bufferovanie pre okamzite odosielanie dat
 static void disable_tcp_buffering(int socket) {
-    int flag = 1;
-#ifdef _WIN32
-    setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (char*)&flag, sizeof(flag));
-#else  
-    setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-#endif
+    DISABLE_TCP_BUFFERING(socket);
 }
 
 // Posle synchronizacny signal a caka na jeho potvrdenie
@@ -395,7 +324,7 @@ ssize_t send_all(int sock, const void *buf, size_t size) {
     size_t remaining = size;
     
     while (remaining > 0) {
-        ssize_t sent = send(sock, (const char*)p, remaining, MSG_NOSIGNAL);
+        ssize_t sent = send(sock, (const char*)p, remaining, SEND_FLAGS);
         if (sent <= 0) {
             if (errno == EINTR) continue;  // Prerusenie, skusi znova
             return -1;  // Chyba
@@ -467,11 +396,7 @@ int send_transfer_ack(int socket) {
     while (retries > 0) {
         printf(MSG_ACK_SENDING, MAX_RETRIES - retries + 1, MAX_RETRIES);
         
-        #ifdef _WIN32
-        int result = send(socket, MAGIC_TACK, ACK_SIZE, 0);
-        #else
-        int result = send(socket, MAGIC_TACK, ACK_SIZE, MSG_NOSIGNAL);
-        #endif
+        int result = send(socket, MAGIC_TACK, ACK_SIZE, SEND_FLAGS);
         
         if (result == ACK_SIZE) {
             wait();

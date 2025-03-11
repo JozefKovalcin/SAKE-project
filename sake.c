@@ -132,3 +132,124 @@ void evolve_keys(uint8_t *master_key, uint8_t *auth_key, uint64_t counter) {
     secure_wipe(old_master, KEY_SIZE);
     crypto_wipe(&ctx, sizeof(ctx));
 }
+
+// Inicializacia struktury retazca klucov pre SAKE
+// Vytvori pociatocnu sadu klucov z hlavneho kluca
+void sake_init_key_chain(sake_key_chain_t *chain, const uint8_t *master_key, int is_initiator) {
+    // Kopirovanie hlavneho kluca
+    memcpy(chain->master_key, master_key, KEY_SIZE);
+    
+    // Nastavenie epochy na nulu (zaciatocny stav)
+    chain->epoch = 0;
+    chain->is_initiator = is_initiator;
+    
+    // Odvodenie aktualneho autentifikacneho kluca K'_0
+    derive_authentication_key(chain->auth_key_curr, chain->master_key);
+    
+    // Ak je to iniciator, musime vytvorit aj dalsi autentifikacny kluc K'_1
+    if (is_initiator) {
+        // Vytvorenie docasnej kopie pre evoluciu
+        uint8_t temp_master[KEY_SIZE];
+        uint8_t temp_auth[KEY_SIZE];
+        memcpy(temp_master, chain->master_key, KEY_SIZE);
+        memcpy(temp_auth, chain->auth_key_curr, KEY_SIZE);
+        
+        // Evolucia klucov pre epoch 1
+        evolve_keys(temp_master, temp_auth, 1);
+        
+        // Ulozenie autentifikacneho kluca pre epoch 1
+        memcpy(chain->auth_key_next, temp_auth, KEY_SIZE);
+        
+        // Pre prvu inicializaciu, predchadzajuce a aktualne autentifikacne kluce su rovnake
+        memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
+        
+        // Vymazanie docasnych klucov
+        secure_wipe(temp_master, KEY_SIZE);
+        secure_wipe(temp_auth, KEY_SIZE);
+    } else {
+        // Pre responder staci inicializovat aktualny autentifikacny kluc
+        memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
+        memcpy(chain->auth_key_next, chain->auth_key_curr, KEY_SIZE);
+    }
+    
+    print_hex("Initialized chain with master key: ", chain->master_key, KEY_SIZE);
+    print_hex("Initial auth_key_curr: ", chain->auth_key_curr, KEY_SIZE);
+    if (is_initiator) {
+        print_hex("Initial auth_key_next: ", chain->auth_key_next, KEY_SIZE);
+    }
+}
+
+// Aktualizacia retazca klucov
+// Posunie kluce v retazci o jeden epoch dopredu
+void sake_update_key_chain(sake_key_chain_t *chain) {
+    // Inicializacia docasnych premennych
+    uint8_t temp_master[KEY_SIZE];
+    uint8_t temp_auth[KEY_SIZE];
+    
+    if (chain->is_initiator) {
+        // Pre initiatora udrzujeme tri autentifikacne kluce
+        
+        // Posun autentifikacnych klucov (predchadzajuci <- aktualny <- nasledujuci)
+        memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
+        memcpy(chain->auth_key_curr, chain->auth_key_next, KEY_SIZE);
+        
+        // Evolucia master kluca a vypocet noveho nasledujuceho autentifikacneho kluca
+        memcpy(temp_master, chain->master_key, KEY_SIZE);
+        
+        // Vypocet noveho master kluca pre nasledujucu epochu (j+1)
+        crypto_blake2b_ctx ctx;
+        crypto_blake2b_init(&ctx, KEY_SIZE);
+        crypto_blake2b_update(&ctx, chain->master_key, KEY_SIZE);
+        uint64_t next_epoch = chain->epoch + 1;
+        crypto_blake2b_update(&ctx, (uint8_t*)&next_epoch, SAKE_KEY_COUNTER_SIZE);
+        crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));
+        crypto_blake2b_final(&ctx, temp_master);
+        
+        // Odvodenie nasledujuceho autentifikacneho kluca K'_(j+1)
+        derive_authentication_key(chain->auth_key_next, temp_master);
+        
+        // Aktualizacia master kluca na aktualnu epochu
+        crypto_blake2b_ctx ctx2;
+        crypto_blake2b_init(&ctx2, KEY_SIZE);
+        crypto_blake2b_update(&ctx2, chain->master_key, KEY_SIZE);
+        crypto_blake2b_update(&ctx2, (uint8_t*)&chain->epoch, SAKE_KEY_COUNTER_SIZE);
+        crypto_blake2b_update(&ctx2, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));
+        crypto_blake2b_final(&ctx2, chain->master_key);
+        
+        crypto_wipe(&ctx, sizeof(ctx));
+        crypto_wipe(&ctx2, sizeof(ctx2));
+    } else {
+        // Pre respondera udrzujeme len aktualnu sadu klucov
+        // Evolucia master kluca
+        crypto_blake2b_ctx ctx;
+        crypto_blake2b_init(&ctx, KEY_SIZE);
+        crypto_blake2b_update(&ctx, chain->master_key, KEY_SIZE);
+        crypto_blake2b_update(&ctx, (uint8_t*)&chain->epoch, SAKE_KEY_COUNTER_SIZE);
+        crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));
+        crypto_blake2b_final(&ctx, chain->master_key);
+        
+        // Odvodenie noveho autentifikacneho kluca
+        derive_authentication_key(chain->auth_key_curr, chain->master_key);
+        
+        // Aktualizujeme vsetky auth kluce
+        memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
+        memcpy(chain->auth_key_next, chain->auth_key_curr, KEY_SIZE);
+        
+        crypto_wipe(&ctx, sizeof(ctx));
+    }
+    
+    // Zvysenie epochy
+    chain->epoch++;
+    
+    // Vymazanie docasnych premennych
+    secure_wipe(temp_master, KEY_SIZE);
+    secure_wipe(temp_auth, KEY_SIZE);
+    
+    printf("Updated key chain to epoch %llu\n", (unsigned long long)chain->epoch);
+    print_hex("New master key: ", chain->master_key, KEY_SIZE);
+    print_hex("New auth_key_curr: ", chain->auth_key_curr, KEY_SIZE);
+    if (chain->is_initiator) {
+        print_hex("New auth_key_prev: ", chain->auth_key_prev, KEY_SIZE);
+        print_hex("New auth_key_next: ", chain->auth_key_next, KEY_SIZE);
+    }
+}
