@@ -21,7 +21,7 @@ Pre kazdy ucastnik sa udrziavaju:
 - **auth_key_curr** - Aktualny autentifikacny kluc
 - **auth_key_next** - Nasledujuci autentifikacny kluc (pre plynulu rotaciu)
 - **epoch** - Pocitadlo verzie kluca
-- **is_initiator** - Priznak, ci ide o iniciatora spojenia
+- **is_initiator** - Tag, ci ide o iniciatora spojenia
 
 ## Klucove Komponenty
 
