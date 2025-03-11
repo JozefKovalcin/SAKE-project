@@ -192,6 +192,10 @@
 #define SAKE_NONCE_CLIENT_SIZE 16    // Velkost nonce klienta
 #define SAKE_NONCE_SERVER_SIZE 16    // Velkost nonce servera
 
+// Hodnoty pre vysledok autentifikacie
+#define AUTH_SUCCESS 0x01             // Kod pre uspesnu autentifikaciu
+#define AUTH_FAILED 0x00              // Kod pre neuspesnu autentifikaciu
+
 // SAKE Protokolove spravy
 #define MSG_SAKE_AUTH_SUCCESS "SAKE response verified successfully\n" // Uspesna autentifikacia
 #define MSG_SAKE_AUTH_FAILED "SAKE response verification failed\n"   // Neuspesna autentifikacia
@@ -205,6 +209,9 @@
 #define ERR_SEND_CHALLENGE "Error: Failed to send challenge\n" // Chyba pri odosielani vyzvy
 #define ERR_RECEIVE_RESPONSE "Error: Failed to receive response\n" // Chyba pri prijimani odpovede
 #define ERR_CLIENT_AUTH_FAILED "Error: Client authentication failed\n" // Chyba pri autentifikacii klienta
+#define ERR_AUTH_VERIFICATION "Error: Failed to verify authentication result\n" // Chyba pri overovani vysledku autentifikacie
+#define ERR_AUTH_FAILED "Error: Authentication failed - incorrect master key\n" // Chyba pri zlyhani autentifikacie
+#define ERR_AUTH_CONFIRMATION "Error: Failed to send authentication confirmation\n" // Chyba pri odosielani potvrdenia autentifikacie
 
 // Chybove spravy pre spracovanie blokov
 #define ERR_RECEIVE_ENCRYPTED_CHUNK "Error: Failed to receive encrypted chunk\n" // Chyba pri prijimani zasifrovaneho bloku

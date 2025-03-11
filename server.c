@@ -137,6 +137,19 @@ int main() {
     // Overenie odpovede - pouzivame aktualny authentication key
     if (verify_response(response, key_chain.auth_key_curr, challenge, server_nonce) != 0) {
         fprintf(stderr, ERR_CLIENT_AUTH_FAILED);
+        
+        // Odoslanie klientovi informacie o zlyhani autentifikacie
+        uint8_t auth_result = AUTH_FAILED;
+        send_all(client_socket, &auth_result, 1);
+        
+        cleanup_sockets(client_socket, server_fd);
+        return -1;
+    }
+    
+    // Odoslanie klientovi potvrdenia o uspesnej autentifikacii
+    uint8_t auth_result = AUTH_SUCCESS;
+    if (send_all(client_socket, &auth_result, 1) != 1) {
+        fprintf(stderr, ERR_AUTH_CONFIRMATION);
         cleanup_sockets(client_socket, server_fd);
         return -1;
     }

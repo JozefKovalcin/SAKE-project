@@ -141,6 +141,20 @@ int main() {
         return -1;
     }
 
+    // Overenie, ci server akceptoval autentifikaciu
+    uint8_t auth_result;
+    if (recv_all(sock, &auth_result, 1) != 1) {
+        fprintf(stderr, ERR_AUTH_VERIFICATION);
+        cleanup_socket(sock);
+        return -1;
+    }
+    
+    if (auth_result != AUTH_SUCCESS) {
+        fprintf(stderr, ERR_AUTH_FAILED);
+        cleanup_socket(sock);
+        return -1;
+    }
+
     // Odvodenie kluca relacie z hlavneho kluca a nonce hodnot
     derive_session_key(session_key, key_chain.master_key, client_nonce, server_nonce);
 
