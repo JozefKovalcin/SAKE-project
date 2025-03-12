@@ -2,7 +2,7 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{amsmath}
-\usepackage{fullpage}  % For better page margins
+\usepackage{fullpage}
 
 \begin{document}
 
