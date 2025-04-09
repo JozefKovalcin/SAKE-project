@@ -120,17 +120,17 @@ void set_timeout_options(int sock);      // Nastavenie timeoutu pre socket
 void cleanup_network(void);             // Ukoncenie Winsock pre Windows
 void set_socket_timeout(int sock, int timeout_ms);  // Nastavenie timeoutu pre socket
 
-// Helper functions for reliable data transmission
+// Pomocne funkcie pre prenos dat
 ssize_t send_all(int sock, const void *buf, size_t size);
 ssize_t recv_all(int sock, void *buf, size_t size);
 
-// Helper functions for reliable chunk size transmission 
+// Pomocne funkcie pre spravu chunkov
 int send_chunk_size_reliable(int socket, uint32_t size);
 int receive_chunk_size_reliable(int socket, uint32_t *size);
 
 // Serverove funkcie
 // Funkcie potrebne pre vytvorenie a spravu serverovej casti
-int setup_server(void);                 // Vytvori a nakonfiguruje server socket
+int setup_server(int port);             // Vytvori a nakonfiguruje server socket na danom porte
 int accept_client_connection(int server_fd, struct sockaddr_in *client_addr);  // Prijme spojenie od klienta
 int send_ready_signal(int socket);      // Posle signal pripravenosti klientovi
 int receive_salt(int socket, uint8_t *salt);  // Prijme kryptograficku sol
@@ -138,7 +138,7 @@ int send_key_acknowledgment(int socket);  // Posle potvrdenie o prijati kluca
 
 // Klientske funkcie
 // Funkcie potrebne pre vytvorenie a spravu klientskej casti
-int connect_to_server(const char *address);  // Pripoji sa k serveru
+int connect_to_server(const char *address, int port);  // Pripoji sa k serveru na danom porte
 int wait_for_ready(int socket);          // Caka na signal pripravenosti
 int send_salt_to_server(int socket, const uint8_t *salt);  // Posle sol serveru
 int wait_for_key_acknowledgment(int socket);  // Caka na potvrdenie kluca

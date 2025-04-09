@@ -1,18 +1,18 @@
 # Zabezpeceny prenos suborov cez SAKE protokol
 
-Tento projekt implementuje system pre zabezpeceny prenos suborov cez TCP/IP siet s vyuzitim SAKE protokolu (Symmetric-key Authenticated Key Exchange). Program zabezpecuje end-to-end sifrovanie s autentifikaciou, perfect forward secrecy, a rotaciu klucov pocas prenosu.
+Tento projekt implementuje system pre zabezpeceny prenos suborov cez TCP/IP siet s vyuzitim SAKE protokolu (Symmetric-key Authenticated Key Exchange). Program zabezpecuje end-to-end sifrovanie s autentizaciou, perfect forward secrecy, a rotaciu klucov pocas prenosu.
 
 ## Bezpecnostne prvky
 
-### Sifrovanie a autentifikacia
-- ChaCha20-Poly1305 pre sifrovanie s autentifikaciou
+### Sifrovanie a autentizacia
+- ChaCha20-Poly1305 pre sifrovanie s autentizaciou
 - Unikatny nonce pre kazdy blok dat
 - MAC (Message Authentication Code) pre integritu dat
 - Kontrola podvrhnutia alebo upravy dat
 
 ### Manazment klucov
 - Argon2id pre bezpecne odvodenie klucov z hesiel
-- Symetricka autentifikacia medzi klientom a serverom
+- Symetricka autentizacia medzi klientom a serverom
 - Automaticka rotacia klucov pocas dlhych prenosov
 - Validacia synchronizacie klucov medzi klientom a serverom
 
@@ -27,38 +27,38 @@ Tento projekt implementuje system pre zabezpeceny prenos suborov cez TCP/IP siet
 
 SAKE (Symmetric-key Authenticated Key Exchange) poskytuje:
 
-1. Vzajomna autentifikacia medzi klientom a serverom
+1. Vzajomna autentizacia medzi klientom a serverom
 2. Ustanovenie session kluca
 3. Forward secrecy pomocou evolucie klucov
 
 ### Priebeh protokolu
 
 1. Klient a server odvodia master kluc K zo zdielaneho hesla pomocou Argon2
-2. Obe strany odvodia autentifikacny kluc K' z master kluca K
+2. Obe strany odvodia autentizacny kluc K' z master kluca K
 3. Klient posle nahodny nonce serveru
 4. Server vygeneruje vyzvu zalozenu na K', nonce klienta a vlastnom nahodnom nonce
 5. Klient vypocita odpoved na vyzvu
-6. Server overi odpoved, cim autentifikuje klienta
+6. Server overi odpoved, cim autentizuje klienta
 7. Obe strany odvodia session kluc z master kluca a oboch nonce hodnot
 8. Prebieha evolucia klucov pre zabezpecenie forward secrecy
 
 ## Architektura systemu
 
 ### Client-Server Model
-- Klient iniciuje spojenie a autentifikaciu
+- Klient iniciuje spojenie a autentizaciu
 - Server overuje identitu klienta a prijima sifrovane subory
 - Obe strany spolupracuju na zabezpeceni komunikacie
 
 ### Implementacia key chain
 - Retazec klucov pre podporu forward secrecy
-- Automaticka evolucia klucov po uspesnej autentifikacii
+- Automaticka evolucia klucov po uspesnej autentizacii
 - Udrzuje predchadzajuci, aktualny a buduci kluc
 
 ## Hlavne komponenty
 
 ### Server (server.c)
 - Pocuva na TCP porte 8080
-- Autentifikuje prichadzajuce spojenia
+- Autentizuje prichadzajuce spojenia
 - Desifruje a overuje prijate data
 - Uklada subory s prefixom "received_"
 - Synchronizuje rotaciu klucov s klientom
@@ -77,8 +77,8 @@ SAKE (Symmetric-key Authenticated Key Exchange) poskytuje:
 - Generovanie a verifikacia MAC tagov
 
 ### SAKE Protokol (sake.c, sake.h)
-- Implementacia protokolu pre symetricku autentifikaciu
-- Funkcie pre challenge-response autentifikaciu
+- Implementacia protokolu pre symetricku autentizaciu
+- Funkcie pre challenge-response autentizaciu
 - Evolucia klucov a sprava key chain
 - Odvodenie session klucov
 
@@ -121,7 +121,7 @@ Spustenie klienta:
 1. **Vytvorenie zabezpeceneho spojenia**:
    - Inicializacia SAKE protokolu
    - Vymena nonce hodnot
-   - Vzajomna autentifikacia cez zdielane heslo
+   - Vzajomna autentizacia cez zdielane heslo
    - Vytvorenie session kluca
 
 2. **Prenos suboru**:
@@ -150,14 +150,14 @@ Spustenie klienta:
 - Nepouziva zranitelne asymetricke algoritmy
 
 ### Ochrana integrity dat
-- Autentifikacia pomocou MAC pre kazdy blok
+- Autentizacia pomocou MAC pre kazdy blok
 - Validacia integrity pomocou Poly1305
 - Overovanie synchronizacie klucov
 
 ## Chybove stavy
 Program obsahuje robustnu detekciu a spracovanie chyb:
 - Timeout pri sietovych operaciach
-- Neuspesna autentifikacia
+- Neuspesna autentizacia
 - Corrupted alebo manipulovane data
 - Neuspesna synchronizacia klucov
 - Chyby pri praci so subormi

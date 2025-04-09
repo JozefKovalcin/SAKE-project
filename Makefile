@@ -19,7 +19,7 @@ SERVER_SRC = server.c $(COMMON_SRC)
 CLIENT_SRC = client.c $(COMMON_SRC)
 
 # Header files for dependency tracking
-HEADERS = monocypher.h siete.h crypto_utils.h constants.h platform.h sake.h
+HEADERS = monocypher.h siete.h crypto_utils.h constants.h platform.h sake.h errors.h
 
 # Output executables
 SERVER = server$(EXT)

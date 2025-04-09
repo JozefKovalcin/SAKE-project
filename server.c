@@ -8,7 +8,7 @@
  * Popis: 
  *     Implementacia servera pre zabezpeceny prenos suborov. Program zabezpecuje:
  *     - Vytvorenie TCP servera a prijimanie spojeni
- *     - Autentifikaciu pomocou SAKE protokolu (Symmetric Authenticated Key Exchange)
+ *     - Autentizaciu pomocou SAKE protokolu (Symmetric Authenticated Key Exchange)
  *     - Bezpecnu vymenu klucov s klientom zalozenu na zdielanom tajomstve
  *     - Prijimanie a desifrovanie suborov pomocou ChaCha20-Poly1305
  *     - Overovanie integrity prijatych dat cez Poly1305 MAC
@@ -48,29 +48,58 @@ int main() {
     // Inicializacia sietovych prvkov
     int server_fd, client_socket;
     struct sockaddr_in client_addr;
+    int port; 
+    char port_str[6]; // Max 5 cislic + null terminator
 
     // Inicializacia Winsock pre Windows platformu
     initialize_network();
 
-    // Vytvorenie a konfiguracia servera
-    if ((server_fd = setup_server()) < 0) {
-        fprintf(stderr, ERR_SOCKET_SETUP, strerror(errno));
+    // Ziadanie cisla portu od uzivatela
+    printf(PORT_PROMPT);
+    if (fgets(port_str, sizeof(port_str), stdin) == NULL) {
+        fprintf(stderr, ERR_PORT_READ);
         cleanup_network();
         return -1;
     }
 
-    printf(LOG_SERVER_START);
+    // Konverzia portu na integer a validacia
+    char *endptr;
+    long port_long = strtol(port_str, &endptr, 10);
+    if (endptr == port_str || *endptr != '\n' || port_long < 1 || port_long > 65535) {
+        fprintf(stderr, ERR_PORT_INVALID);
+        cleanup_network();
+        return -1;
+    }
+    port = (int)port_long;
 
-    if ((client_socket = accept_client_connection(server_fd, &client_addr)) < 0) {
-        fprintf(stderr, ERR_CLIENT_ACCEPT, strerror(errno));
-        cleanup_sockets(client_socket, server_fd);
+    // Vytvorenie a konfiguracia servera
+    if ((server_fd = setup_server(port)) < 0) {
+        // Vypis chyby, ak sa nepodari nastavit serverovy socket
+        fprintf(stderr, ERR_SOCKET_SETUP, port, strerror(errno));
+        cleanup_network();
         return -1;
     }
 
+    printf(LOG_SERVER_START, port);
+
+    // Cakanie na pripojenie klienta
+    if ((client_socket = accept_client_connection(server_fd, &client_addr)) < 0) {
+        // Vypis chyby, ak sa nepodari prijat klientske spojenie
+        fprintf(stderr, ERR_CLIENT_ACCEPT, strerror(errno));
+        cleanup_sockets(-1, server_fd); // Upratanie serveroveho socketu
+        cleanup_network();
+        return -1;
+    }
+    // Vypis informacie o prijatom spojeni
+    printf(MSG_CONNECTION_ACCEPTED, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+
     // Inicializacia bezpecneho spojenia
     if (send_ready_signal(client_socket) < 0) {
+        // Vypis chyby, ak zlyha odoslanie signalu pripravenosti
         fprintf(stderr, ERR_HANDSHAKE);
         cleanup_sockets(client_socket, server_fd);
+        cleanup_network();
         return -1;
     }
 
@@ -136,17 +165,19 @@ int main() {
     
     // Overenie odpovede - pouzivame aktualny authentication key
     if (verify_response(response, key_chain.auth_key_curr, challenge, server_nonce) != 0) {
-        fprintf(stderr, ERR_CLIENT_AUTH_FAILED);
-        
-        // Odoslanie klientovi informacie o zlyhani autentifikacie
+        // Vypis specifickejsej chybovej hlasky pri zlyhani overenia
+        // Naznacuje mozne nespravne heslo alebo MitM utok
+        fprintf(stderr, ERR_SAKE_MITM_SUSPECTED_SERVER);
+
+        // Odoslanie klientovi informacie o zlyhani autentizacie
         uint8_t auth_result = AUTH_FAILED;
-        send_all(client_socket, &auth_result, 1);
-        
+        send_all(client_socket, &auth_result, 1); // Ignorujeme navratovu hodnotu, spojenie sa aj tak ukonci
+
         cleanup_sockets(client_socket, server_fd);
         return -1;
     }
-    
-    // Odoslanie klientovi potvrdenia o uspesnej autentifikacii
+
+    // Odoslanie klientovi potvrdenia o uspesnej autentizacii
     uint8_t auth_result = AUTH_SUCCESS;
     if (send_all(client_socket, &auth_result, 1) != 1) {
         fprintf(stderr, ERR_AUTH_CONFIRMATION);
@@ -157,7 +188,7 @@ int main() {
     // Odvodenie kluca relacie z hlavneho kluca
     derive_session_key(session_key, key_chain.master_key, client_nonce, server_nonce);
     
-    // Evolucia klucov po uspesnej autentifikacii
+    // Evolucia klucov po uspesnej autentizacii
     sake_update_key_chain(&key_chain);
     
     printf(LOG_SESSION_COMPLETE);
@@ -198,10 +229,10 @@ int main() {
     // Buffery pre prenos dat
     // ciphertext: Zasifrovane data z klienta
     // plaintext: Desifrovane data pre zapis
-    // tag: Autentifikacny tag pre overenie integrity
+    // tag: Autentizacny tag pre overenie integrity
     uint8_t ciphertext[TRANSFER_BUFFER_SIZE];  // Buffer pre zasifrovane data
     uint8_t plaintext[TRANSFER_BUFFER_SIZE];   // Buffer pre desifrovane data
-    uint8_t tag[TAG_SIZE];                     // Buffer pre autentifikacny tag
+    uint8_t tag[TAG_SIZE];                     // Buffer pre autentizacny tag
 
     // Prenos suboru s rotaciou klucov
     uint64_t block_count = 0;
@@ -316,14 +347,14 @@ int main() {
         // Spracovanie bloku dat a aktualizacia postupu
         // Prijatie zasifrovaneho bloku dat od klienta
         // - nonce: jednorazova hodnota pouzita pre tento blok
-        // - tag: autentifikacny tag na overenie integrity
+        // - tag: autentizacny tag na overenie integrity
         // - ciphertext: zasifrovane data
         if (receive_encrypted_chunk(client_socket, nonce, tag, ciphertext, chunk_size) < 0) {
             fprintf(stderr, ERR_RECEIVE_ENCRYPTED_CHUNK);
             break;
         }
         
-        // Desifrovanie a autentifikacia prijatych dat pomocou aktualneho kluca relacie
+        // Desifrovanie a autentizacia prijatych dat pomocou aktualneho kluca relacie
         if (crypto_aead_unlock(plaintext, tag, session_key, nonce, NULL, 0, ciphertext, chunk_size) != 0) {
             fprintf(stderr, ERR_DECRYPT_CHUNK_AUTH);
             break;

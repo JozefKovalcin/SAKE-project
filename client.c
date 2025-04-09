@@ -8,7 +8,7 @@
  * Popis: 
  *     Implementacia klienta pre zabezpeceny prenos suborov. Program zabezpecuje:
  *     - Vytvorenie TCP spojenia so serverom
- *     - Autentifikaciu pomocou SAKE protokolu (Symmetric Authenticated Key Exchange)
+ *     - Autentizaciu pomocou SAKE protokolu (Symmetric Authenticated Key Exchange)
  *     - Generovanie a odoslanie kryptografickych materialov pre ustanovenie relacie
  *     - Sifrovanie a odosielanie suborov pomocou ChaCha20-Poly1305
  *     - Automaticku rotaciu klucov pocas prenosu pre zvysenu bezpecnost
@@ -45,27 +45,69 @@ sake_key_chain_t key_chain;     // Struktura retazca klucov pre SAKE
 int main() {
     // KROK 1: Inicializacia spojenia so serverom
     // - Vytvorenie TCP socketu
-    // - Pripojenie na server (127.0.0.1)
+    // - Pripojenie na server (IP a port zadane uzivatelom)
     // - Overenie uspesnosti pripojenia
     int sock;
+    int port;
+    char port_str[6]; // Max 5 digits + null terminator
 
     // Inicializacia sietovej kniznice pre Windows
     initialize_network();
 
-    // Vytvorenie TCP spojenia so serverom
-    // - vytvori socket
-    // - pripoji sa na lokalny server (127.0.0.1)
-    // - port je definovany v constants.h
-    if ((sock = connect_to_server(DEFAULT_SERVER_ADDRESS)) < 0) {
-        fprintf(stderr, ERR_SOCKET_SETUP, strerror(errno));
-        return -1;
-    }
+ char server_ip[16]; // IP adresa servera
+
+ // Ziadanie IP adresy servera od uzivatela
+printf(IP_ADDRESS_PROMPT, DEFAULT_SERVER_ADDRESS);
+if (fgets(server_ip, sizeof(server_ip), stdin) == NULL) {
+    fprintf(stderr, IP_ADDR_READ);
+    return -1;
+}
+
+// Odstranenie znaku '\n' z konca retazca
+size_t len = strlen(server_ip);
+if (len > 0 && server_ip[len - 1] == '\n') {
+    server_ip[len - 1] = '\0';
+    len--;
+}
+
+// Ak nebola zadana IP adresa, pouzije sa predvolena adresa
+if (len == 0) {
+    strcpy(server_ip, DEFAULT_SERVER_ADDRESS);
+}
+
+// Ziadanie cisla portu od uzivatela
+printf(PORT_PROMPT);
+if (fgets(port_str, sizeof(port_str), stdin) == NULL) {
+    fprintf(stderr, ERR_PORT_READ);
+    cleanup_network();
+    return -1;
+}
+
+// Konverzia portu na integer a validacia
+char *endptr;
+long port_long = strtol(port_str, &endptr, 10);
+if (endptr == port_str || *endptr != '\n' || port_long < 1 || port_long > 65535) {
+    fprintf(stderr, ERR_PORT_INVALID);
+    cleanup_network();
+    return -1;
+}
+port = (int)port_long;
+
+// Vytvorenie spojenia pomocou zadanej IP adresy a portu
+if ((sock = connect_to_server(server_ip, port)) < 0) {
+    // Vypis chyby, ak sa nepodari pripojit k serveru
+    fprintf(stderr, ERR_CONNECTION_FAILED " Server IP: %s, Port: %d (%s)\n", server_ip, port, strerror(errno));
+    cleanup_network(); // Upratanie sietovych zdrojov pred ukoncenim
+    return -1;
+}
 
     // Pocka na signal pripravenosti od servera
     // Zabezpeci synchronizaciu medzi klientom a serverom
     if (wait_for_ready(sock) < 0) {
-        fprintf(stderr, ERR_HANDSHAKE);
+        // Vypis chyby, ak zlyha pociatocna synchronizacia
+        fprintf(stderr, ERR_HANDSHAKE " Failed to receive ready signal from server.\n");
         cleanup_socket(sock);
+        cleanup_network(); // Upratanie sietovych zdrojov pred ukoncenim
         return -1;
     }
 
@@ -98,10 +140,10 @@ int main() {
         return -1;
     }
 
-    // KROK 3: SAKE protokol - autentifikačná výmena kľúčov
+    // KROK 3: SAKE protokol - autentizacna vymena Klucov
     printf(LOG_SESSION_START);
 
-    uint8_t client_nonce[SAKE_NONCE_CLIENT_SIZE];  // Nonce vygenerované klientom
+    uint8_t client_nonce[SAKE_NONCE_CLIENT_SIZE];  // Nonce vygenerovane klientom
     uint8_t server_nonce[SAKE_NONCE_SERVER_SIZE];  // Nonce prijate od servera
     uint8_t challenge[SAKE_CHALLENGE_SIZE];        // VYzva prijata od servera
     uint8_t response[SAKE_RESPONSE_SIZE];          // Odpoved vypocitana na vyzvu
@@ -127,7 +169,7 @@ int main() {
         return -1;
     }
 
-    // Vypocet odpovede na vyzvu - pouziva sa aktualny autentifikacny kluc
+    // Vypocet odpovede na vyzvu - pouziva sa aktualny autentizacny kluc
     if (compute_response(response, key_chain.auth_key_curr, challenge, server_nonce) != 0) {
         fprintf(stderr, ERR_COMPUTE_RESPONSE);
         cleanup_socket(sock);
@@ -141,16 +183,18 @@ int main() {
         return -1;
     }
 
-    // Overenie, ci server akceptoval autentifikaciu
+    // Overenie, ci server akceptoval autentizaciu
     uint8_t auth_result;
     if (recv_all(sock, &auth_result, 1) != 1) {
         fprintf(stderr, ERR_AUTH_VERIFICATION);
         cleanup_socket(sock);
         return -1;
     }
-    
+
     if (auth_result != AUTH_SUCCESS) {
-        fprintf(stderr, ERR_AUTH_FAILED);
+        // Vypis specifickejsej chybovej hlasky, ak server odmietol autentizaciu
+        // Naznacuje mozne nespravne heslo alebo MitM utok
+        fprintf(stderr, ERR_SAKE_MITM_SUSPECTED_CLIENT);
         cleanup_socket(sock);
         return -1;
     }
@@ -158,7 +202,7 @@ int main() {
     // Odvodenie kluca relacie z hlavneho kluca a nonce hodnot
     derive_session_key(session_key, key_chain.master_key, client_nonce, server_nonce);
 
-    // Evolucia klucov po uspesnej autentifikacii
+    // Evolucia klucov po uspesnej autentizacii
     sake_update_key_chain(&key_chain);
 
     printf(LOG_SESSION_COMPLETE);
@@ -369,20 +413,27 @@ int main() {
     // Odoslanie EOF markera a upratanie
     if (send_chunk_size_reliable(sock, 0) < 0) {
         fprintf(stderr, MSG_EOF_FAILED);
-    }
+        // Neuspesny prenos, cize zlyhanie pri odosielani EOF
+        total_bytes = 0; // Označuje neuspesny prenos
+    } else {
+        printf(LOG_TRANSFER_COMPLETE);
 
-    printf(LOG_TRANSFER_COMPLETE);
-   
+        // Pocka na potvrdenie od servera o uspesnom prijati dat
+        if (wait_for_transfer_ack(sock) != 0) {
+            fprintf(stderr, ERR_SERVER_ACK);
+            total_bytes = 0; // Označuje neuspesny prenos
+        } else {
+            // Sprava pre uzivatela o prijati potvrdenia
+            printf(MSG_ACK_RECEIVED);
+            printf(LOG_SUCCESS_FORMAT, "sent", (float)total_bytes / PROGRESS_UPDATE_INTERVAL);
+        }
+    }
 
     // Upratanie a ukoncenie
     // Zatvorenie suboru
     // Uvolnenie sietovych prostriedkov
     // Navratova hodnota indikuje uspesnost prenosu
 
-    // Sprava pre uzivatela o prijati potvrdenia
-    printf(MSG_ACK_RECEIVED);
-    printf(LOG_SUCCESS_FORMAT, "sent", (float)total_bytes / PROGRESS_UPDATE_INTERVAL);
- 
     if (file != NULL) {
         fclose(file);
     }
@@ -402,5 +453,5 @@ int main() {
     // Vymazanie key chain
     secure_wipe(&key_chain, sizeof(key_chain));
 
-    return (total_bytes > 0) ? 0 : -1; 
+    return (total_bytes > 0) ? 0 : -1; // Return success only if total_bytes > 0 (indicating ACK was received)
 }

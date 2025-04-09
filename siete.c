@@ -79,7 +79,7 @@ void set_timeout_options(int sock) {
 // - Vytvori socket
 // - Nastavi adresu a port
 // - Zacne pocuvat na porte
-int setup_server(void) {
+int setup_server(int port) {
     // Server socket, ktory pocuva na urcitej adrese
     int server_fd;
     // Struktura address obsahuje informacie o tom, kde ma server pocuvat
@@ -99,7 +99,7 @@ int setup_server(void) {
     // - sin_port: cislo portu, na ktorom bude server pocuvat
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;   // 0.0.0.0 - vsetky dostupne adresy
-    address.sin_port = htons(PORT);         // Prevedieme cislo portu do sietoveho formatu
+    address.sin_port = htons(port);         // Prevedieme cislo portu do sietoveho formatu
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         fprintf(stderr, ERR_SOCKET_BIND, strerror(errno));
@@ -149,7 +149,7 @@ int send_ready_signal(int socket) {
 // Vytvorenie spojenia so serverom
 // - Vytvori socket
 // - Pripoji sa na zadanu adresu
-int connect_to_server(const char *address) {
+int connect_to_server(const char *address, int port) {
     int sock = 0;
     struct sockaddr_in serv_addr;
 
@@ -159,7 +159,7 @@ int connect_to_server(const char *address) {
     }
 
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(PORT);
+    serv_addr.sin_port = htons(port);
 
     if (inet_pton(AF_INET, address, &serv_addr.sin_addr) <= 0) {
         fprintf(stderr, ERR_INVALID_ADDRESS);

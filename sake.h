@@ -7,7 +7,7 @@
  * 
  * Popis: 
  *     Tento subor obsahuje funkcie pre implementaciu SAKE protokolu:
- *     - Autentifikaciu na zaklade zdielanych tajomstiev
+ *     - Autentizaciu na zaklade zdielanych tajomstiev
  *     - Odvodzovanie relacnych klucov
  *     - Pravidelnu rotaciu klucov pocas prenosu
  *     - Bezpecne odvodzovanie relacnych klucov s forward secrecy
@@ -34,11 +34,11 @@ typedef struct {
     int is_initiator;           // Iniciator = 0; Responder = 1
 } sake_key_chain_t;
 
-// SAKE protokol - funkcie pre autentifikáciu a výmenu kľúčov
-void derive_authentication_key(uint8_t *auth_key,     // Odvodenie autentifikacneho kluca K' z hlavneho kluca K
+// SAKE protokol - funkcie pre autentizaciu a vymenu klucov
+void derive_authentication_key(uint8_t *auth_key,     // Odvodenie autentizacneho kluca K' z hlavneho kluca K
                               const uint8_t *master_key);
 
-void generate_challenge(uint8_t *challenge,          // Generovanie vyzvy pre autentifikaciu
+void generate_challenge(uint8_t *challenge,          // Generovanie vyzvy pre autentizaciu
                        uint8_t *server_nonce,
                        const uint8_t *auth_key,
                        const uint8_t *client_nonce);

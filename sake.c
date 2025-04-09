@@ -6,8 +6,8 @@
  * Datum:      05-03-2025
  * 
  * Popis: 
- *     Implementacia funkcii SAKE protokolu pre autentifikaciu a vymenu klucov:
- *     - Odvodzovanie autentifikacnych klucov
+ *     Implementacia funkcii SAKE protokolu pre autentizaciu a vymenu klucov:
+ *     - Odvodzovanie autentizacnych klucov
  *     - Generovanie a overovanie vyziev
  *     - Vytvaranie relacnych klucov
  *     - Evolucia klucov pre forward secrecy
@@ -27,20 +27,20 @@
 #include "crypto_utils.h" // Pre pomocne kryptograficke funkcie
 #include "constants.h"  // Pre konstanty programu
 
-// Odvodenie autentifikacneho kluca K' z hlavneho kluca K
-// Pouziva BLAKE2b hash funkciu pre bezpecne odvodenie autentifikacneho kluca
+// Odvodenie autentizacneho kluca K' z hlavneho kluca K
+// Pouziva BLAKE2b hash funkciu pre bezpecne odvodenie autentizacneho kluca
 void derive_authentication_key(uint8_t *auth_key, const uint8_t *master_key) {
     crypto_blake2b_ctx ctx;                // Inicializacia kontextu pre BLAKE2b
     crypto_blake2b_init(&ctx, KEY_SIZE);   // Nastavenie dlzky vystupu na velkost kluca
     crypto_blake2b_update(&ctx, master_key, KEY_SIZE);  // Pridanie hlavneho klucu do hashu
     crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_AUTH_TAG, strlen(SAKE_DERIV_AUTH_TAG));  // Pridamanie tagu pre separaciu domen
-    crypto_blake2b_final(&ctx, auth_key);  // Finalizacia a ziskanie vysledneho autentifikacneho kluca
+    crypto_blake2b_final(&ctx, auth_key);  // Finalizacia a ziskanie vysledneho autentizacneho kluca
     crypto_wipe(&ctx, sizeof(ctx));        // Bezpecne vymazanie citliveho kontextu z pamate
     
     print_hex("Derived authentication key: ", auth_key, KEY_SIZE);
 }
 
-// Generovanie vyzvy pre autentifikaciu
+// Generovanie vyzvy pre autentizaciu
 // Vytvara challenge hodnotu pre overenie identity komunikujucej strany
 void generate_challenge(uint8_t *challenge, uint8_t *server_nonce, 
                       const uint8_t *auth_key, const uint8_t *client_nonce) {
@@ -86,11 +86,11 @@ int verify_response(const uint8_t *response, const uint8_t *auth_key,
     
     // Porovnanie prijatej a vypocitanej odpovede pomocou konstantneho casu
     if (crypto_verify32(expected_response, response) != 0) {
-        fprintf(stderr, MSG_SAKE_AUTH_FAILED);  // Vypis chyby pri neuspesnej autentifikacii
+        fprintf(stderr, MSG_SAKE_AUTH_FAILED);  // Vypis chyby pri neuspesnej autentizacii
         return -1;
     }
     
-    printf(MSG_SAKE_AUTH_SUCCESS);  // Hlasenie o uspesnej autentifikacii
+    printf(MSG_SAKE_AUTH_SUCCESS);  // Hlasenie o uspesnej autentizacii
     return 0;
 }
 
@@ -125,7 +125,7 @@ void evolve_keys(uint8_t *master_key, uint8_t *auth_key, uint64_t counter) {
     crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));  // Tag pre separaciu
     crypto_blake2b_final(&ctx, master_key);  // Novy hlavny kluc
     
-    // Odvodenie noveho autentifikacneho kluca K' z noveho hlavneho kluca
+    // Odvodenie noveho autentizacneho kluca K' z noveho hlavneho kluca
     derive_authentication_key(auth_key, master_key);
     
     // Bezpecne vymazanie stareho kluca z pamate
@@ -143,10 +143,10 @@ void sake_init_key_chain(sake_key_chain_t *chain, const uint8_t *master_key, int
     chain->epoch = 0;
     chain->is_initiator = is_initiator;
     
-    // Odvodenie aktualneho autentifikacneho kluca K'_0
+    // Odvodenie aktualneho autentizacneho kluca K'_0
     derive_authentication_key(chain->auth_key_curr, chain->master_key);
     
-    // Ak je to iniciator, musime vytvorit aj dalsi autentifikacny kluc K'_1
+    // Ak je to iniciator, musime vytvorit aj dalsi autentizacny kluc K'_1
     if (is_initiator) {
         // Vytvorenie docasnej kopie pre evoluciu
         uint8_t temp_master[KEY_SIZE];
@@ -157,17 +157,17 @@ void sake_init_key_chain(sake_key_chain_t *chain, const uint8_t *master_key, int
         // Evolucia klucov pre epoch 1
         evolve_keys(temp_master, temp_auth, 1);
         
-        // Ulozenie autentifikacneho kluca pre epoch 1
+        // Ulozenie autentizacneho kluca pre epoch 1
         memcpy(chain->auth_key_next, temp_auth, KEY_SIZE);
         
-        // Pre prvu inicializaciu, predchadzajuce a aktualne autentifikacne kluce su rovnake
+        // Pre prvu inicializaciu, predchadzajuce a aktualne autentizacne kluce su rovnake
         memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
         
         // Vymazanie docasnych klucov
         secure_wipe(temp_master, KEY_SIZE);
         secure_wipe(temp_auth, KEY_SIZE);
     } else {
-        // Pre responder staci inicializovat aktualny autentifikacny kluc
+        // Pre responder staci inicializovat aktualny autentizacny kluc
         memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
         memcpy(chain->auth_key_next, chain->auth_key_curr, KEY_SIZE);
     }
@@ -187,13 +187,13 @@ void sake_update_key_chain(sake_key_chain_t *chain) {
     uint8_t temp_auth[KEY_SIZE];
     
     if (chain->is_initiator) {
-        // Pre initiatora udrzujeme tri autentifikacne kluce
+        // Pre initiatora udrzujeme tri autentizacne kluce
         
-        // Posun autentifikacnych klucov (predchadzajuci <- aktualny <- nasledujuci)
+        // Posun autentizacnych klucov (predchadzajuci <- aktualny <- nasledujuci)
         memcpy(chain->auth_key_prev, chain->auth_key_curr, KEY_SIZE);
         memcpy(chain->auth_key_curr, chain->auth_key_next, KEY_SIZE);
         
-        // Evolucia master kluca a vypocet noveho nasledujuceho autentifikacneho kluca
+        // Evolucia master kluca a vypocet noveho nasledujuceho autentizacneho kluca
         memcpy(temp_master, chain->master_key, KEY_SIZE);
         
         // Vypocet noveho master kluca pre nasledujucu epochu (j+1)
@@ -205,7 +205,7 @@ void sake_update_key_chain(sake_key_chain_t *chain) {
         crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));
         crypto_blake2b_final(&ctx, temp_master);
         
-        // Odvodenie nasledujuceho autentifikacneho kluca K'_(j+1)
+        // Odvodenie nasledujuceho autentizacneho kluca K'_(j+1)
         derive_authentication_key(chain->auth_key_next, temp_master);
         
         // Aktualizacia master kluca na aktualnu epochu
@@ -228,7 +228,7 @@ void sake_update_key_chain(sake_key_chain_t *chain) {
         crypto_blake2b_update(&ctx, (const uint8_t*)SAKE_DERIV_KEY_TAG, strlen(SAKE_DERIV_KEY_TAG));
         crypto_blake2b_final(&ctx, chain->master_key);
         
-        // Odvodenie noveho autentifikacneho kluca
+        // Odvodenie noveho autentizacneho kluca
         derive_authentication_key(chain->auth_key_curr, chain->master_key);
         
         // Aktualizujeme vsetky auth kluce
