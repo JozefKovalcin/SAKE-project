@@ -83,10 +83,16 @@ if (fgets(port_str, sizeof(port_str), stdin) == NULL) {
     return -1;
 }
 
+// Odstranenie znaku '\n' z konca retazca
+size_t port_len = strlen(port_str);
+if (port_len > 0 && port_str[port_len - 1] == '\n') {
+    port_str[port_len - 1] = '\0';
+}
+
 // Konverzia portu na integer a validacia
 char *endptr;
 long port_long = strtol(port_str, &endptr, 10);
-if (endptr == port_str || *endptr != '\n' || port_long < 1 || port_long > 65535) {
+if (endptr == port_str || *endptr != '\0' || port_long < 1 || port_long > 65535) {
     fprintf(stderr, ERR_PORT_INVALID);
     cleanup_network();
     return -1;
