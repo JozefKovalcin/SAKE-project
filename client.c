@@ -145,7 +145,7 @@ int main()
     // Posle salt serveru, aby mohol odvodi rovnaky kluc
     if (send_salt_to_server(sock, salt) < 0)
     {
-        fprintf(stderr, ERR_SALT_RECEIVE);
+        fprintf(stderr, ERR_SALT_SEND);
         cleanup_socket(sock);
         return -1;
     }
