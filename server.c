@@ -95,9 +95,7 @@ int main()
         cleanup_network();
         return -1;
     }
-    // Vypis informacie o prijatom spojeni
-    printf(MSG_CONNECTION_ACCEPTED, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
+    
     // Inicializacia bezpecneho spojenia
     if (send_ready_signal(client_socket) < 0)
     {
