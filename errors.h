@@ -6,6 +6,7 @@
 #define ERR_CLIENT_ACCEPT "Error: Failed to accept client connection (%s)\n"
 #define ERR_HANDSHAKE "Error: Failed during initial handshake - check network connection\n"
 #define ERR_SALT_RECEIVE "Error: Failed to receive salt from client\n"
+#define ERR_SALT_SEND "Error: Failed to send salt to server\n"
 #define ERR_KEY_DERIVATION "Error: Key derivation failed\n"
 #define ERR_KEY_ACK "Error: Failed to send key acknowledgment\n"
 #define ERR_SESSION_SETUP "Error: Failed to start session setup\n"
